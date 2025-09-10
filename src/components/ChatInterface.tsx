@@ -321,7 +321,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 space-y-4">
         <AnimatePresence>
-          {messages.map((message) => (
+          {messages.map((message, index) => (
             <MessageBubble key={message.id} message={message} index={index} />
           ))}
         </AnimatePresence>
