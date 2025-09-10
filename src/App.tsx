@@ -6,7 +6,12 @@ import Header from './components/Header';
 import ThemeToggle from './components/ThemeToggle';
 
 function App() {
-  const [isInitialState, setIsInitialState] = useState(true);
+  const [isInitialState, setIsInitialState] = useState(() => {
+    // Verificar se já existe uma sessão ativa
+    const sessionId = localStorage.getItem('ia-fome-session-id');
+    const hasMessages = sessionId && localStorage.getItem(`ia-fome-messages-${sessionId}`);
+    return !hasMessages;
+  });
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {

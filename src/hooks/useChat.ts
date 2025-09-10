@@ -6,9 +6,40 @@ import { chatService } from '../services/chatService';
 export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionId] = useState(() => uuidv4());
+  const [sessionId] = useState(() => {
+    // Recuperar sessionId do localStorage ou criar novo
+    const saved = localStorage.getItem('ia-fome-session-id');
+    return saved || uuidv4();
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Salvar sessionId no localStorage
+  useEffect(() => {
+    localStorage.setItem('ia-fome-session-id', sessionId);
+  }, [sessionId]);
+
+  // Carregar mensagens salvas
+  useEffect(() => {
+    const savedMessages = localStorage.getItem(`ia-fome-messages-${sessionId}`);
+    if (savedMessages) {
+      try {
+        const parsed = JSON.parse(savedMessages);
+        setMessages(parsed.map((msg: any) => ({
+          ...msg,
+          timestamp: new Date(msg.timestamp)
+        })));
+      } catch (error) {
+        console.error('Erro ao carregar mensagens:', error);
+      }
+    }
+  }, [sessionId]);
+
+  // Salvar mensagens no localStorage
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem(`ia-fome-messages-${sessionId}`, JSON.stringify(messages));
+    }
+  }, [messages, sessionId]);
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
@@ -87,12 +118,18 @@ export const useChat = () => {
     }
   }, [messages, sendMessage]);
 
+  const clearSession = useCallback(() => {
+    localStorage.removeItem(`ia-fome-messages-${sessionId}`);
+    localStorage.removeItem('ia-fome-session-id');
+    setMessages([]);
+  }, [sessionId]);
   return {
     messages,
     isLoading,
     sendMessage,
     retryMessage,
     messagesEndRef,
-    sessionId
+    sessionId,
+    clearSession
   };
 };

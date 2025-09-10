@@ -119,7 +119,10 @@ async function handleRestaurantResponse(order, messageText, restaurantPhone) {
       
     } else {
       // Gerar resposta automática usando Gemini
-      const response = await generateClientResponse(conversation, order.details);
+      const response = await generateClientResponse(conversation, order.orderData);
+      
+      // Adicionar delay para parecer natural
+      await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
       
       // Enviar resposta para o restaurante
       await sendWhatsAppMessage(restaurantPhone, response);
@@ -176,11 +179,16 @@ function analyzeIfNeedsClientInput(message) {
 }
 
 // Gerar resposta automática como cliente
-async function generateClientResponse(conversation, orderDetails) {
+async function generateClientResponse(conversation, orderData) {
   try {
     let context = CLIENT_RESPONSE_PROMPT + '\n\n';
-    context += `Detalhes do meu pedido: ${orderDetails}\n\n`;
-    context += 'Conversa com o restaurante:\n';
+    context += `Meus dados do pedido:\n`;
+    context += `- Comida: ${orderData.food}\n`;
+    context += `- Endereço: ${orderData.address}\n`;
+    context += `- Telefone: ${orderData.phone}\n`;
+    context += `- Pagamento: ${orderData.paymentMethod}\n`;
+    if (orderData.change) context += `- Troco para: R$ ${orderData.change}\n`;
+    context += '\nConversa com o restaurante:\n';
     
     conversation.forEach(msg => {
       const role = msg.role === 'restaurant' ? 'Restaurante' : 'Eu';
@@ -207,9 +215,9 @@ async function notifyClientForInput(sessionId, question) {
   
   // Também enviar WhatsApp para o cliente se tivermos o número
   const session = sessions.get(sessionId);
-  if (session && session.userPhone) {
+  if (session && session.orderData.phone) {
     const clientMessage = `🍕 IA Fome: O restaurante perguntou: "${question}"\n\nPor favor, responda no chat do IA Fome: https://iafome.netlify.app`;
-    await sendWhatsAppMessage(session.userPhone, clientMessage);
+    await sendWhatsAppMessage(session.orderData.phone, clientMessage);
   }
 }
 
@@ -218,9 +226,9 @@ async function notifyClientOrderConfirmed(sessionId, restaurantMessage) {
   console.log(`Pedido confirmado para cliente ${sessionId}: ${restaurantMessage}`);
   
   const session = sessions.get(sessionId);
-  if (session && session.userPhone) {
+  if (session && session.orderData.phone) {
     const clientMessage = `🍕 IA Fome: Seu pedido foi confirmado! 🎉\n\n${restaurantMessage}\n\nAcompanhe pelo chat: https://iafome.netlify.app`;
-    await sendWhatsAppMessage(session.userPhone, clientMessage);
+    await sendWhatsAppMessage(session.orderData.phone, clientMessage);
   }
 }
 
