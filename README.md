@@ -27,10 +27,10 @@ O IA Fome é uma plataforma revolucionária que transforma como as pessoas pedem
 No painel do Netlify, adicione as seguintes variáveis:
 
 ```
-VITE_GOOGLE_AI_API_KEY=AIzaSyCiFWTVnWzv3B4pbIVijHeRuy1sof1vikg
-VITE_EVOLUTION_API_URL=https://api.evoapicloud.com
-VITE_EVOLUTION_TOKEN=E9BC21E3183D-4119-8D35-AF0DB0B5891E
-VITE_EVOLUTION_INSTANCE_ID=ff3a8b42-ba3b-4e1a-99c3-f85b25169070
+VITE_GOOGLE_AI_API_KEY=
+VITE_EVOLUTION_API_URL=
+VITE_EVOLUTION_TOKEN=
+VITE_EVOLUTION_INSTANCE_ID=
 ```
 
 ### 2. Configurar Webhook no Evolution
@@ -74,10 +74,10 @@ netlify dev
 
 ### Dados da Instância:
 - **Projeto**: IA Fome
-- **Instância**: +55 24 999325986
-- **URL**: https://api.evoapicloud.com
-- **ID**: ff3a8b42-ba3b-4e1a-99c3-f85b25169070
-- **Token**: E9BC21E3183D-4119-8D35-AF0DB0B5891E
+- **Instância**:
+- **URL**: 
+- **ID**: 
+- **Token**: 
 
 ### Webhook Configuration:
 - **URL**: `https://iafome.netlify.app/.netlify/functions/webhook`
