@@ -46,8 +46,10 @@ export const useChat = () => {
     let pollInterval: NodeJS.Timeout;
 
     const startPolling = () => {
-      pollInterval = setInterval(async () => {
+      const poll = async () => {
         try {
+          console.log(`🔍 POLLING: Verificando mensagens para ${sessionId}...`);
+          
           const response = await fetch('/.netlify/functions/poll-messages', {
             method: 'POST',
             headers: { 
@@ -61,7 +63,7 @@ export const useChat = () => {
             const data = await response.json();
             
             if (data.hasNewMessage && data.message) {
-              console.log('🚀 Nova mensagem automática recebida:', data.message.substring(0, 50));
+              console.log('🚀 NOVA MENSAGEM RECEBIDA:', data.message.substring(0, 50));
               
               // Criar nova mensagem da IA
               const newMessage: Message = {
@@ -81,23 +83,32 @@ export const useChat = () => {
                 );
                 
                 if (exists) {
-                  console.log('Mensagem duplicada ignorada');
+                  console.log('⚠️ MENSAGEM DUPLICADA IGNORADA');
                   return prev;
                 }
                 
-                console.log('✅ Nova mensagem adicionada ao chat');
+                console.log('✅ MENSAGEM ADICIONADA AO CHAT');
                 return [...prev, newMessage];
               });
+            } else {
+              console.log('📭 Nenhuma mensagem pendente');
             }
           }
         } catch (error) {
-          console.error('❌ Erro no polling:', error);
+          console.error('❌ ERRO NO POLLING:', error);
         }
-      }, 1500); // Polling mais frequente (1.5s)
+      };
+      
+      // Primeira verificação imediata
+      poll();
+      
+      // Depois polling a cada 1 segundo
+      pollInterval = setInterval(poll, 1000);
     };
 
     // Iniciar polling após primeira mensagem
     if (messages.length > 0) {
+      console.log('🚀 INICIANDO POLLING PARA SESSÃO:', sessionId);
       startPolling();
     }
 
@@ -152,7 +163,7 @@ export const useChat = () => {
     setIsLoading(true);
 
     try {
-      console.log('📤 Enviando mensagem:', content.substring(0, 50));
+      console.log('📤 ENVIANDO MENSAGEM:', content.substring(0, 50));
 
       // Marcar mensagem do usuário como enviada IMEDIATAMENTE
       setMessages(prev => prev.map(msg =>
@@ -177,13 +188,13 @@ export const useChat = () => {
           
           attempts++;
           if (attempts < 3) {
-            console.log(`🔄 Tentativa ${attempts + 1}/3 em 1s...`);
+            console.log(`🔄 RETRY ${attempts + 1}/3 em 1s...`);
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
         } catch (error) {
           attempts++;
           if (attempts < 3) {
-            console.log(`🔄 Erro na tentativa ${attempts}, tentando novamente...`);
+            console.log(`🔄 ERRO TENTATIVA ${attempts}, retry...`);
             await new Promise(resolve => setTimeout(resolve, 1000));
           } else {
             throw error;
@@ -192,7 +203,7 @@ export const useChat = () => {
       }
 
       if (response?.success && response.data) {
-        console.log('✅ Resposta recebida:', response.data.message.substring(0, 50));
+        console.log('✅ RESPOSTA RECEBIDA:', response.data.message.substring(0, 50));
         
         const assistantMessage: Message = {
           id: uuidv4(),
@@ -207,7 +218,7 @@ export const useChat = () => {
         throw new Error(response?.error || 'Erro ao enviar mensagem');
       }
     } catch (error) {
-      console.error('❌ Erro ao enviar mensagem:', error);
+      console.error('❌ ERRO AO ENVIAR:', error);
 
       // Marcar mensagem do usuário como erro
       setMessages(prev => prev.map(msg =>
