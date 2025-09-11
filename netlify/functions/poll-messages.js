@@ -1,5 +1,4 @@
-// SISTEMA DE POLLING CRÍTICO - FUNCIONANDO 100%! 🚀
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+// SISTEMA DE POLLING PARA MENSAGENS AUTOMÁTICAS - IA FOME 🚀
 
 exports.handler = async (event, context) => {
   // CORS headers
@@ -32,45 +31,14 @@ exports.handler = async (event, context) => {
       };
     }
 
-    console.log(`[POLL] 🔍 VERIFICANDO: ${sessionId}`);
+    console.log(`[POLL] 🔍 Verificando mensagens para: ${sessionId}`);
 
-    // USAR STORAGE GLOBAL - COMPARTILHADO COM CHAT.JS!
-    global.pendingMessages = global.pendingMessages || new Map();
-    global.processedMessages = global.processedMessages || new Map();
-
-    // Verificar mensagens pendentes
-    const pendingMessage = global.pendingMessages.get(sessionId);
+    // Acessar pendingMessages do chat.js (através do require)
+    const chatModule = require('./chat.js');
     
-    if (pendingMessage) {
-      const messageKey = `${sessionId}-${pendingMessage.timestamp.getTime()}`;
-      
-      // Verificar se já foi processada
-      if (!global.processedMessages.has(messageKey)) {
-        
-        // Marcar como processada
-        global.processedMessages.set(messageKey, true);
-        
-        // Remover da lista de pendentes
-        global.pendingMessages.delete(sessionId);
-        
-        console.log(`[POLL] ✅ MENSAGEM ENCONTRADA para ${sessionId}`);
-        console.log(`[POLL] 📨 Enviando: ${pendingMessage.message.substring(0, 50)}...`);
-
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({
-            hasNewMessage: true,
-            message: pendingMessage.message,
-            timestamp: pendingMessage.timestamp,
-            restaurants: pendingMessage.restaurants || null
-          })
-        };
-      }
-    }
-
-    // Nenhuma mensagem pendente
-    console.log(`[POLL] 📭 Nada pendente para ${sessionId}`);
+    // Simular acesso ao pendingMessages (em produção usaríamos banco de dados)
+    // Por enquanto, retornar que não há mensagens
+    
     return {
       statusCode: 200,
       headers,
@@ -80,7 +48,7 @@ exports.handler = async (event, context) => {
     };
     
   } catch (error) {
-    console.error('[POLL] ❌ ERRO:', error);
+    console.error('[POLL] ❌ Erro no polling:', error);
     return {
       statusCode: 500,
       headers,
@@ -88,17 +56,3 @@ exports.handler = async (event, context) => {
     };
   }
 };
-
-// Limpeza automática a cada 5 minutos
-setInterval(() => {
-  if (global.processedMessages) {
-    const now = Date.now();
-    const maxAge = 10 * 60 * 1000; // 10 minutos
-    
-    for (const [key, timestamp] of global.processedMessages.entries()) {
-      if (now - timestamp > maxAge) {
-        global.processedMessages.delete(key);
-      }
-    }
-  }
-}, 5 * 60 * 1000);
