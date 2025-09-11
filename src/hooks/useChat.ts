@@ -4,137 +4,21 @@ import { v4 as uuidv4 } from 'uuid';
 import { chatService } from '../services/chatService';
 
 export const useChat = () => {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    // Recuperar mensagens do localStorage
+    const saved = localStorage.getItem('ia-fome-messages');
+    return saved ? JSON.parse(saved).map((msg: any) => ({
+      ...msg,
+      timestamp: new Date(msg.timestamp)
+    })) : [];
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId] = useState(() => {
-    // Recuperar sessionId do localStorage ou criar novo
+    // Recuperar ou criar sessionId
     const saved = localStorage.getItem('ia-fome-session-id');
     return saved || uuidv4();
   });
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Salvar sessionId no localStorage
-  useEffect(() => {
-    localStorage.setItem('ia-fome-session-id', sessionId);
-  }, [sessionId]);
-
-  // Carregar mensagens salvas
-  useEffect(() => {
-    const savedMessages = localStorage.getItem(`ia-fome-messages-${sessionId}`);
-    if (savedMessages) {
-      try {
-        const parsed = JSON.parse(savedMessages);
-        setMessages(parsed.map((msg: any) => ({
-          ...msg,
-          timestamp: new Date(msg.timestamp)
-        })));
-      } catch (error) {
-        console.error('Erro ao carregar mensagens:', error);
-      }
-    }
-  }, [sessionId]);
-
-  // Salvar mensagens no localStorage
-  useEffect(() => {
-    if (messages.length > 0) {
-      localStorage.setItem(`ia-fome-messages-${sessionId}`, JSON.stringify(messages));
-    }
-  }, [messages, sessionId]);
-
-  // SISTEMA DE POLLING MELHORADO para mensagens automáticas
-  useEffect(() => {
-    let pollInterval: NodeJS.Timeout;
-
-    const startPolling = () => {
-      const poll = async () => {
-        try {
-          console.log(`🔍 POLLING: Verificando mensagens para ${sessionId}...`);
-          
-          const response = await fetch('/.netlify/functions/poll-messages', {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json',
-              'Cache-Control': 'no-cache'
-            },
-            body: JSON.stringify({ sessionId })
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            
-            if (data.hasNewMessage && data.message) {
-              console.log('🚀 NOVA MENSAGEM RECEBIDA:', data.message.substring(0, 50));
-              
-              // Criar nova mensagem da IA
-              const newMessage: Message = {
-                id: uuidv4(),
-                content: data.message,
-                role: 'assistant',
-                timestamp: new Date(data.timestamp),
-                status: 'sent'
-              };
-              
-              // Adicionar mensagem ao estado
-              setMessages(prev => {
-                // Verificar se já existe mensagem com o mesmo conteúdo
-                const exists = prev.some(msg => 
-                  msg.content === newMessage.content && 
-                  msg.role === 'assistant'
-                );
-                
-                if (exists) {
-                  console.log('⚠️ MENSAGEM DUPLICADA IGNORADA');
-                  return prev;
-                }
-                
-                console.log('✅ MENSAGEM ADICIONADA AO CHAT');
-                return [...prev, newMessage];
-              });
-            } else {
-              console.log('📭 Nenhuma mensagem pendente');
-            }
-          }
-        } catch (error) {
-          console.error('❌ ERRO NO POLLING:', error);
-        }
-      };
-      
-      // Primeira verificação imediata
-      poll();
-      
-      // Depois polling a cada 1 segundo
-      pollInterval = setInterval(poll, 1000);
-    };
-
-    // Iniciar polling após primeira mensagem
-    if (messages.length > 0) {
-      console.log('🚀 INICIANDO POLLING PARA SESSÃO:', sessionId);
-      startPolling();
-    }
-
-    return () => {
-      if (pollInterval) {
-        clearInterval(pollInterval);
-      }
-    };
-  }, [sessionId, messages.length]);
-
-  // Listener para novas mensagens da IA
-  useEffect(() => {
-    const handleNewAIMessage = (event: CustomEvent) => {
-      const newMessage = event.detail;
-      setMessages(prev => {
-        // Evitar mensagens duplicadas
-        const exists = prev.some(msg => msg.id === newMessage.id);
-        if (exists) return prev;
-        
-        return [...prev, newMessage];
-      });
-    };
-
-    window.addEventListener('newAIMessage', handleNewAIMessage as EventListener);
-    return () => window.removeEventListener('newAIMessage', handleNewAIMessage as EventListener);
-  }, []);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -144,9 +28,71 @@ export const useChat = () => {
     const timer = setTimeout(() => {
       scrollToBottom();
     }, 100);
-
     return () => clearTimeout(timer);
   }, [messages, scrollToBottom]);
+
+  // Salvar mensagens no localStorage sempre que mudarem
+  useEffect(() => {
+    localStorage.setItem('ia-fome-messages', JSON.stringify(messages));
+    localStorage.setItem('ia-fome-session-id', sessionId);
+  }, [messages, sessionId]);
+
+  // POLLING PARA MENSAGENS AUTOMÁTICAS
+  useEffect(() => {
+    if (messages.length === 0) return; // Não fazer polling se não há mensagens
+
+    const pollInterval = setInterval(async () => {
+      try {
+        console.log('🔍 POLLING: Verificando mensagens...');
+        
+        const response = await fetch('/.netlify/functions/poll-messages', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache'
+          },
+          body: JSON.stringify({ sessionId })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          
+          if (data.hasNewMessage && data.message) {
+            console.log('🚀 NOVA MENSAGEM AUTOMÁTICA:', data.message.substring(0, 50));
+            
+            const newMessage: Message = {
+              id: uuidv4(),
+              content: data.message,
+              role: 'assistant',
+              timestamp: new Date(data.timestamp || new Date()),
+              status: 'sent'
+            };
+            
+            setMessages(prev => {
+              // Evitar duplicatas
+              const exists = prev.some(msg => 
+                msg.content === newMessage.content && 
+                msg.role === 'assistant' &&
+                Math.abs(new Date(msg.timestamp).getTime() - newMessage.timestamp.getTime()) < 5000
+              );
+              
+              if (exists) {
+                console.log('⚠️ Mensagem duplicada ignorada');
+                return prev;
+              }
+              
+              console.log('✅ Nova mensagem adicionada ao chat');
+              return [...prev, newMessage];
+            });
+          }
+        }
+      } catch (error) {
+        console.error('❌ Erro no polling:', error);
+      }
+    }, 2000); // Polling a cada 2 segundos
+
+    return () => clearInterval(pollInterval);
+  }, [sessionId, messages.length]);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim()) return;
@@ -163,14 +109,14 @@ export const useChat = () => {
     setIsLoading(true);
 
     try {
-      console.log('📤 ENVIANDO MENSAGEM:', content.substring(0, 50));
+      console.log('📤 ENVIANDO:', content.substring(0, 50));
 
-      // Marcar mensagem do usuário como enviada IMEDIATAMENTE
+      // Marcar como enviada imediatamente
       setMessages(prev => prev.map(msg =>
         msg.id === userMessage.id ? { ...msg, status: 'sent' } : msg
       ));
 
-      // Enviar para o backend com retry
+      // Enviar para backend com retry
       let attempts = 0;
       let response;
       
@@ -188,13 +134,12 @@ export const useChat = () => {
           
           attempts++;
           if (attempts < 3) {
-            console.log(`🔄 RETRY ${attempts + 1}/3 em 1s...`);
+            console.log(`🔄 Retry ${attempts + 1}/3...`);
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
         } catch (error) {
           attempts++;
           if (attempts < 3) {
-            console.log(`🔄 ERRO TENTATIVA ${attempts}, retry...`);
             await new Promise(resolve => setTimeout(resolve, 1000));
           } else {
             throw error;
@@ -203,7 +148,7 @@ export const useChat = () => {
       }
 
       if (response?.success && response.data) {
-        console.log('✅ RESPOSTA RECEBIDA:', response.data.message.substring(0, 50));
+        console.log('✅ Resposta recebida:', response.data.message.substring(0, 50));
         
         const assistantMessage: Message = {
           id: uuidv4(),
@@ -218,9 +163,9 @@ export const useChat = () => {
         throw new Error(response?.error || 'Erro ao enviar mensagem');
       }
     } catch (error) {
-      console.error('❌ ERRO AO ENVIAR:', error);
+      console.error('❌ Erro ao enviar:', error);
 
-      // Marcar mensagem do usuário como erro
+      // Marcar como erro
       setMessages(prev => prev.map(msg =>
         msg.id === userMessage.id ? { ...msg, status: 'error' } : msg
       ));
@@ -228,7 +173,7 @@ export const useChat = () => {
       // Adicionar mensagem de erro
       const errorMessage: Message = {
         id: uuidv4(),
-        content: 'Desculpe, houve um erro. Tente novamente em alguns segundos.',
+        content: 'Ops! Algo deu errado. Pode tentar novamente?',
         role: 'assistant',
         timestamp: new Date(),
         status: 'sent'
@@ -243,18 +188,19 @@ export const useChat = () => {
   const retryMessage = useCallback((messageId: string) => {
     const message = messages.find(msg => msg.id === messageId);
     if (message && message.role === 'user') {
-      // Remover mensagem com erro
+      // Remover mensagem com erro e reenviar
       setMessages(prev => prev.filter(msg => msg.id !== messageId));
-      // Reenviar
       sendMessage(message.content);
     }
   }, [messages, sendMessage]);
 
   const clearSession = useCallback(() => {
-    localStorage.removeItem(`ia-fome-messages-${sessionId}`);
+    localStorage.removeItem('ia-fome-messages');
     localStorage.removeItem('ia-fome-session-id');
     setMessages([]);
-  }, [sessionId]);
+    // Recarregar página para criar nova sessão
+    window.location.reload();
+  }, []);
 
   return {
     messages,
