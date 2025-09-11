@@ -278,10 +278,25 @@ exports.handler = async (event, context) => {
     if (hasAllInfo && session.stage === 'initial') {
       session.stage = 'searching_restaurant';
       
-      // Buscar restaurantes usando Gemini
+      // Buscar restaurantes usando Gemini PROATIVAMENTE
       setTimeout(async () => {
         try {
-          await searchAndOrderRestaurant(session);
+          const restaurants = await searchAndOrderRestaurant(session, sessionId);
+          
+          // Enviar automaticamente as opções para o cliente
+          if (restaurants && restaurants.length > 0) {
+            let optionsMessage = "Encontrei ótimas opções para você:\n\n";
+            restaurants.forEach((rest, index) => {
+              optionsMessage += `${index + 1}. ${rest.name}\n`;
+              optionsMessage += `   ${rest.specialty}\n`;
+              optionsMessage += `   ${rest.estimatedTime} - ${rest.price}\n\n`;
+            });
+            optionsMessage += "Qual restaurante você prefere?";
+            
+            // Simular nova mensagem da IA
+            console.log('Enviando opções automaticamente:', optionsMessage);
+            // Aqui você implementaria a lógica para enviar a mensagem automaticamente
+          }
         } catch (error) {
           console.error('Erro ao processar pedido:', error);
         }
@@ -308,7 +323,7 @@ exports.handler = async (event, context) => {
 };
 
 // Buscar restaurantes e fazer pedido
-async function searchAndOrderRestaurant(session) {
+async function searchAndOrderRestaurant(session, sessionId) {
   try {
     // Extrair cidade do endereço
     const addressParts = session.orderData.address.split(',');
@@ -345,28 +360,20 @@ async function searchAndOrderRestaurant(session) {
       ];
     }
 
-    // Enviar opções para o cliente (simulado - em produção, usar WebSocket ou polling)
-    console.log('Restaurantes encontrados:', restaurants);
-
-    // Simular seleção do primeiro restaurante
-    const selectedRestaurant = restaurants[0];
-
-    // Fazer pedido no restaurante
-    await makeRestaurantOrder(session, selectedRestaurant);
-
     // Salvar pedido
-    orders.set(session.id, {
-      sessionId: session.id,
-      restaurant: selectedRestaurant,
+    orders.set(sessionId, {
+      sessionId: sessionId,
+      restaurants: restaurants,
       orderData: session.orderData,
-      status: 'sent_to_restaurant',
+      status: 'restaurants_found',
       timestamp: new Date()
     });
 
-    console.log(`Pedido enviado para ${selectedRestaurant.name}`);
+    return restaurants;
 
   } catch (error) {
     console.error('Erro ao buscar restaurantes:', error);
+    return null;
   }
 }
 
