@@ -10,61 +10,36 @@ const EVOLUTION_INSTANCE_ID = process.env.VITE_EVOLUTION_INSTANCE_ID;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-// Armazenamento em memória
-const sessions = new Map();
-const orders = new Map();
-const pendingMessages = new Map();
-
-// PROMPT PREMIUM MELHORADO
+// PROMPT PREMIUM
 const SYSTEM_PROMPT = `
-Você é o IA Fome, o concierge particular PREMIUM de delivery mais exclusivo do mundo. Você é direto, eficiente e sempre sugere acompanhamentos.
+Você é o IA Fome, o concierge particular PREMIUM de delivery mais exclusivo do mundo.
 
 PERSONALIDADE:
 - Concierge 5 estrelas: atencioso, sofisticado, rápido
 - SEMPRE sugira bebidas, sobremesas, acompanhamentos
 - Direto ao ponto, sem enrolação
-- Mensagens curtas e objetivas
-- Não cumprimente repetidamente na mesma conversa
 - Focado em RESULTADOS
 
-PROCESSO DE ATENDIMENTO:
+PROCESSO:
+1. PRIMEIRA INTERAÇÃO: "Olá! Sou o IA Fome, seu concierge pessoal de delivery. O que você gostaria de comer hoje? 🍕"
+2. COLETA: comida, endereço, WhatsApp, pagamento (uma pergunta por vez)
+3. BUSCA: "Perfeito! Buscando as melhores opções... ⏳"
+4. APRESENTE 3 opções numeradas
+5. CONFIRMAÇÃO: "Excelente escolha! Fazendo seu pedido..."
 
-1. PRIMEIRA INTERAÇÃO (apenas uma vez):
-   - Cumprimente caloroso: "Olá! Sou o IA Fome, seu concierge pessoal de delivery. O que você gostaria de comer hoje? 🍕"
-
-2. COLETA EFICIENTE:
-   - Comida: "Que sabor e tamanho? Ex: margherita grande, combo especial..."
-   - SEMPRE sugira: "Que tal uma Coca-Cola 2L ou suco também? 🥤"
-   - Endereço: "Onde entregar? Ex: Rua X, 123, Bairro, Cidade"
-   - WhatsApp: "Seu número para atualizações do pedido?"
-   - Pagamento: "Como prefere pagar: dinheiro, cartão ou PIX?"
-   - Se dinheiro: "Troco para quanto?"
-
-3. BUSCA DE RESTAURANTES:
-   - Com TODAS as informações: "Perfeito! Buscando as melhores opções na sua região... ⏳"
-   - Apresente 3 opções numeradas com preços reais
-
-4. CONFIRMAÇÃO E PEDIDO:
-   - Cliente escolhe número: "Excelente escolha! Fazendo seu pedido no [RESTAURANTE]... 📞"
-   - Faça o pedido REAL via WhatsApp
-   - "Pedido enviado! Aguardando confirmação... ⏳"
-
-REGRAS CRÍTICAS:
+REGRAS:
 - Mensagens curtas e práticas
 - UMA pergunta por vez
 - SEMPRE sugira bebidas/acompanhamentos
 - Com todas as informações, BUSQUE restaurantes
-- Quando cliente escolher, FAÇA pedido real
 - Seja honesto sobre o processo
 
 INFORMAÇÕES OBRIGATÓRIAS:
-✅ Comida + sugestão de bebida aceita/recusada
+✅ Comida + sugestão de bebida
 ✅ Endereço completo
 ✅ WhatsApp
 ✅ Forma de pagamento
 ✅ Troco (se dinheiro)
-
-Com TODAS as informações = BUSCAR RESTAURANTES REAIS!
 `;
 
 exports.handler = async (event, context) => {
@@ -97,80 +72,81 @@ exports.handler = async (event, context) => {
       };
     }
 
-    console.log(`[CHAT] 🚀 PROCESSANDO: ${sessionId} - ${message}`);
-    console.log(`[CHAT] 🔧 VARS AMBIENTE:`, {
-      geminiKey: GEMINI_API_KEY ? `${GEMINI_API_KEY.substring(0, 20)}...` : 'AUSENTE',
-      evolutionUrl: EVOLUTION_BASE_URL || 'AUSENTE',
-      evolutionToken: EVOLUTION_TOKEN ? `${EVOLUTION_TOKEN.substring(0, 10)}...` : 'AUSENTE',
-      evolutionInstance: EVOLUTION_INSTANCE_ID || 'AUSENTE'
+    console.log(`[CHAT] 🚀 NOVA ABORDAGEM: ${sessionId} - ${message}`);
+    console.log(`[CHAT] 🔧 ENV:`, {
+      gemini: !!GEMINI_API_KEY,
+      evolution: !!EVOLUTION_BASE_URL,
+      token: !!EVOLUTION_TOKEN,
+      instance: !!EVOLUTION_INSTANCE_ID
     });
 
-    // Obter ou criar sessão
-    let session = sessions.get(sessionId);
-    if (!session) {
-      session = {
-        id: sessionId,
-        messages: [],
-        orderDetails: {
-          food: null,
-          address: null,
-          phone: null,
-          paymentMethod: null,
-          change: null,
-          observations: null
-        },
-        stage: 'initial',
-        hasGreeted: false,
-        restaurants: [],
-        selectedRestaurant: null,
-        created: new Date(),
-        lastActive: new Date()
-      };
-      sessions.set(sessionId, session);
-      console.log(`[CHAT] 📝 Nova sessão criada: ${sessionId}`);
-    }
+    // Extrair dados diretamente das mensagens (não confiar em session)
+    const orderData = extractOrderFromMessages(messages, message);
+    console.log(`[CHAT] 📊 Dados extraídos:`, orderData);
 
-    session.lastActive = new Date();
-    session.messages = messages;
+    // Verificar se temos todas as informações
+    const hasAllInfo = orderData.food && 
+                      orderData.address && 
+                      orderData.phone && 
+                      orderData.paymentMethod &&
+                      (orderData.paymentMethod !== 'dinheiro' || orderData.change);
 
-    // 🔥 DETECÇÃO: Cliente escolheu restaurante por número
-    if (session.stage === 'choosing' && session.restaurants && session.restaurants.length > 0) {
-      const choice = parseInt(message.trim());
-      if (choice >= 1 && choice <= session.restaurants.length) {
-        const selectedRestaurant = session.restaurants[choice - 1];
+    console.log(`[CHAT] ✅ Info completa: ${hasAllInfo}`);
+
+    // 🔥 DETECÇÃO INTELIGENTE: Se cliente digitou 1, 2 ou 3 E já buscou restaurantes antes
+    const isRestaurantChoice = /^[123]$/.test(message.trim());
+    const previouslySearchedRestaurants = messages.some(msg => 
+      msg.role === 'assistant' && 
+      (msg.content.includes('Encontrei') || msg.content.includes('opções')) &&
+      msg.content.match(/[123]\./g)
+    );
+
+    if (isRestaurantChoice && previouslySearchedRestaurants) {
+      console.log(`[CHAT] 🎯 CLIENTE ESCOLHEU RESTAURANTE: Opção ${message}`);
+      
+      // BUSCAR RESTAURANTES NOVAMENTE (já que não persistem)
+      const restaurants = await searchRealRestaurants(orderData);
+      
+      if (restaurants && restaurants.length > 0) {
+        const choice = parseInt(message.trim()) - 1;
+        const selectedRestaurant = restaurants[choice];
         
-        console.log(`[CHAT] 🎯 CLIENTE ESCOLHEU: ${selectedRestaurant.name}`);
-        console.log(`[CHAT] 📞 TELEFONE: ${selectedRestaurant.phone}`);
-        
-        session.selectedRestaurant = selectedRestaurant;
-        session.stage = 'ordering';
-        sessions.set(sessionId, session);
-
-        // 🚀 FAZER PEDIDO REAL IMEDIATAMENTE!
-        makeRealOrderToRestaurant(session, selectedRestaurant);
-
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({
-            message: `Excelente escolha! Fazendo seu pedido no ${selectedRestaurant.name}... 📞`,
-            sessionId: sessionId
-          })
-        };
+        if (selectedRestaurant) {
+          console.log(`[CHAT] 🏪 RESTAURANTE SELECIONADO: ${selectedRestaurant.name}`);
+          
+          // FAZER PEDIDO REAL IMEDIATAMENTE!
+          const orderSent = await makeOrderImmediately(orderData, selectedRestaurant);
+          
+          if (orderSent) {
+            return {
+              statusCode: 200,
+              headers,
+              body: JSON.stringify({
+                message: `✅ PEDIDO ENVIADO para ${selectedRestaurant.name}!\n\n📞 ${selectedRestaurant.phone}\n📍 ${selectedRestaurant.address}\n\n⏳ Aguardando confirmação...\n💰 ${selectedRestaurant.estimatedPrice}\n⏰ ${selectedRestaurant.estimatedTime}\n\nVou avisar quando responderem! 📱`,
+                sessionId: sessionId
+              })
+            };
+          } else {
+            return {
+              statusCode: 200,
+              headers,
+              body: JSON.stringify({
+                message: `😔 Erro ao contatar ${selectedRestaurant.name}.\n\nPode tentar outro ou aguarde alguns minutos.\n\nQual prefere?`,
+                sessionId: sessionId
+              })
+            };
+          }
+        }
       }
     }
 
-    // Extrair informações
-    extractOrderInfo(session, message);
-
-    // Construir contexto
-    let context = SYSTEM_PROMPT + "\n\n=== INFORMAÇÕES JÁ COLETADAS ===\n";
-    context += `Comida: ${session.orderDetails.food || 'Não informado'}\n`;
-    context += `Endereço: ${session.orderDetails.address || 'Não informado'}\n`;
-    context += `WhatsApp: ${session.orderDetails.phone || 'Não informado'}\n`;
-    context += `Pagamento: ${session.orderDetails.paymentMethod || 'Não informado'}\n`;
-    context += `Troco: ${session.orderDetails.change || 'Não informado'}\n`;
-    context += `Já cumprimentou: ${session.hasGreeted ? 'Sim' : 'Não'}\n\n`;
+    // Construir contexto para IA
+    let context = SYSTEM_PROMPT + "\n\n=== DADOS COLETADOS ===\n";
+    context += `Comida: ${orderData.food || 'Não informado'}\n`;
+    context += `Endereço: ${orderData.address || 'Não informado'}\n`;
+    context += `WhatsApp: ${orderData.phone || 'Não informado'}\n`;
+    context += `Pagamento: ${orderData.paymentMethod || 'Não informado'}\n`;
+    context += `Troco: ${orderData.change || 'Não informado'}\n\n`;
     
     context += "=== CONVERSA ===\n";
     messages.forEach(msg => {
@@ -178,75 +154,51 @@ exports.handler = async (event, context) => {
     });
     context += `Cliente: ${message}\nIA Fome:`;
 
-    if (!session.hasGreeted) {
-      session.hasGreeted = true;
-    }
-
-    console.log(`[CHAT] 📊 Dados coletados:`, session.orderDetails);
-
-    // Verificar se temos todas as informações
-    const hasAllInfo = session.orderDetails.food && 
-                      session.orderDetails.address && 
-                      session.orderDetails.phone && 
-                      session.orderDetails.paymentMethod &&
-                      (session.orderDetails.paymentMethod !== 'dinheiro' || session.orderDetails.change);
-
-    console.log(`[CHAT] ✅ Informações completas: ${hasAllInfo}`);
-
     // Gerar resposta da IA
     const result = await model.generateContent(context);
-    const response = result.response;
-    let aiMessage = response.text().trim();
+    let aiMessage = result.response.text().trim();
 
-    console.log(`[CHAT] 💬 Resposta: ${aiMessage}`);
+    console.log(`[CHAT] 💬 Resposta IA: ${aiMessage}`);
 
-    // 🚀 BUSCAR RESTAURANTES quando IA disser que vai buscar
-    if (hasAllInfo && session.stage === 'initial' && 
-        (aiMessage.includes('buscando') || aiMessage.includes('Buscando') ||
-         aiMessage.includes('procurando') || aiMessage.includes('encontrando'))) {
+    // 🚀 SE IA DISSE QUE VAI BUSCAR, BUSCAR AGORA MESMO E RETORNAR OPÇÕES!
+    if (hasAllInfo && (aiMessage.includes('buscando') || aiMessage.includes('Buscando') ||
+        aiMessage.includes('procurando') || aiMessage.includes('encontrando'))) {
       
-      session.stage = 'searching';
-      console.log(`[CHAT] 🔍 INICIANDO BUSCA DE RESTAURANTES REAIS!`);
+      console.log(`[CHAT] 🔍 IA DISSE QUE VAI BUSCAR - FAZENDO AGORA!`);
       
-      // Buscar IMEDIATAMENTE
-      setTimeout(async () => {
-        try {
-          const restaurants = await searchRealRestaurantsWithGoogle(session);
-          if (restaurants && restaurants.length > 0) {
-            session.restaurants = restaurants;
-            session.stage = 'choosing';
-            sessions.set(sessionId, session);
-
-            let optionsMessage = "🍕 Encontrei restaurantes REAIS na sua região:\n\n";
-            restaurants.forEach((rest, index) => {
-              optionsMessage += `${index + 1}. **${rest.name}**\n`;
-              optionsMessage += `   📞 ${rest.phone}\n`;
-              optionsMessage += `   📍 ${rest.address}\n`;
-              optionsMessage += `   ⭐ ${rest.rating}/5 • ${rest.estimatedTime}\n`;
-              optionsMessage += `   💰 ${rest.estimatedPrice}\n\n`;
-            });
-            optionsMessage += "Qual você prefere? Digite o número! 🎯";
-
-            pendingMessages.set(sessionId, {
-              message: optionsMessage,
-              timestamp: new Date()
-            });
-
-            console.log(`[CHAT] 🎉 OPÇÕES REAIS PREPARADAS!`);
-          } else {
-            pendingMessages.set(sessionId, {
-              message: "😔 Não encontrei restaurantes que entregam na sua região. Pode tentar outro tipo de comida?",
-              timestamp: new Date()
-            });
-          }
-        } catch (error) {
-          console.error('[CHAT] ❌ Erro na busca:', error);
-          pendingMessages.set(sessionId, {
-            message: "😔 Erro ao buscar restaurantes. Pode tentar novamente?",
-            timestamp: new Date()
-          });
-        }
-      }, 2000);
+      const restaurants = await searchRealRestaurants(orderData);
+      
+      if (restaurants && restaurants.length > 0) {
+        let restaurantsList = "🍕 Encontrei restaurantes REAIS na sua região:\n\n";
+        restaurants.forEach((rest, index) => {
+          restaurantsList += `${index + 1}. **${rest.name}**\n`;
+          restaurantsList += `   📞 ${rest.phone}\n`;
+          restaurantsList += `   📍 ${rest.address}\n`;
+          restaurantsList += `   ⭐ ${rest.rating}/5 • ${rest.estimatedTime}\n`;
+          restaurantsList += `   💰 ${rest.estimatedPrice}\n\n`;
+        });
+        restaurantsList += "Digite o NÚMERO da sua escolha (1, 2 ou 3)! 🎯";
+        
+        console.log(`[CHAT] 🎉 RETORNANDO OPÇÕES DIRETAMENTE!`);
+        
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            message: restaurantsList,
+            sessionId: sessionId
+          })
+        };
+      } else {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            message: "😔 Não encontrei restaurantes na sua região. Pode tentar outro tipo de comida?",
+            sessionId: sessionId
+          })
+        };
+      }
     }
 
     return {
@@ -268,427 +220,247 @@ exports.handler = async (event, context) => {
   }
 };
 
-// Extrair informações do pedido
-function extractOrderInfo(session, message) {
-  console.log(`[EXTRACT] 🔍 Analisando: ${message}`);
+// Extrair dados do pedido de TODAS as mensagens
+function extractOrderFromMessages(messages, currentMessage) {
+  const allMessages = [...messages.map(m => m.content), currentMessage].join(' ').toLowerCase();
   
-  const lowerMessage = message.toLowerCase();
+  console.log(`[EXTRACT] 🔍 Analisando todas as mensagens...`);
   
+  const orderData = {
+    food: null,
+    address: null,
+    phone: null,
+    paymentMethod: null,
+    change: null
+  };
+
   // Extrair COMIDA
-  if (!session.orderDetails.food) {
-    const foodKeywords = [
-      'pizza', 'hamburguer', 'hamburger', 'lanche', 'sushi', 'japonês', 'chinês', 
-      'italiana', 'brasileira', 'mexicana', 'árabe', 'margherita', 'calabresa', 
-      'portuguesa', 'frango', 'carne', 'yakisoba', 'combo', 'prato'
-    ];
-    
-    for (const keyword of foodKeywords) {
-      if (lowerMessage.includes(keyword)) {
-        session.orderDetails.food = message;
-        console.log(`[EXTRACT] 🍕 Comida detectada: ${message}`);
-        break;
+  const foodKeywords = ['pizza', 'hamburguer', 'sushi', 'lanche', 'combo'];
+  for (const keyword of foodKeywords) {
+    if (allMessages.includes(keyword)) {
+      // Pegar a mensagem que contém comida
+      for (const msg of messages) {
+        if (msg.content.toLowerCase().includes(keyword)) {
+          orderData.food = msg.content;
+          break;
+        }
       }
+      if (!orderData.food && currentMessage.toLowerCase().includes(keyword)) {
+        orderData.food = currentMessage;
+      }
+      break;
     }
   }
 
   // Extrair ENDEREÇO
-  if (!session.orderDetails.address) {
-    const addressPatterns = [
-      /(?:rua|r\.)\s+[^,]+,?\s*\d+/i,
-      /(?:avenida|av\.)\s+[^,]+,?\s*\d+/i,
-      /[^,]+,\s*\d+/i
-    ];
-    
-    for (const pattern of addressPatterns) {
-      if (pattern.test(message) || lowerMessage.includes('entregar') || lowerMessage.includes('endereço')) {
-        session.orderDetails.address = message;
-        console.log(`[EXTRACT] 📍 Endereço detectado: ${message}`);
-        break;
-      }
+  const addressPatterns = [
+    /rua\s+[^,]+,?\s*n?\s*\d+/i,
+    /avenida\s+[^,]+,?\s*\d+/i,
+    /entregar\s+em[^.]+/i
+  ];
+  
+  for (const pattern of addressPatterns) {
+    const match = allMessages.match(pattern);
+    if (match) {
+      orderData.address = match[0];
+      break;
     }
   }
 
   // Extrair TELEFONE
-  if (!session.orderDetails.phone) {
-    const phoneMatch = message.match(/(?:\+55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\s*)?[\d\s-]{8,11}/);
-    if (phoneMatch) {
-      session.orderDetails.phone = phoneMatch[0].replace(/\D/g, '');
-      console.log(`[EXTRACT] 📱 Telefone detectado: ${session.orderDetails.phone}`);
-    }
+  const phoneMatch = allMessages.match(/(\d{10,11})/);
+  if (phoneMatch) {
+    orderData.phone = phoneMatch[1];
   }
 
-  // Extrair FORMA DE PAGAMENTO
-  if (!session.orderDetails.paymentMethod) {
-    if (lowerMessage.includes('dinheiro') || lowerMessage.includes('espécie')) {
-      session.orderDetails.paymentMethod = 'dinheiro';
-    } else if (lowerMessage.includes('cartão') || lowerMessage.includes('cartao')) {
-      session.orderDetails.paymentMethod = 'cartão';
-    } else if (lowerMessage.includes('pix')) {
-      session.orderDetails.paymentMethod = 'pix';
-    }
-    
-    if (session.orderDetails.paymentMethod) {
-      console.log(`[EXTRACT] 💰 Pagamento: ${session.orderDetails.paymentMethod}`);
-    }
+  // Extrair PAGAMENTO
+  if (allMessages.includes('cartão') || allMessages.includes('cartao')) {
+    orderData.paymentMethod = 'cartão';
+  } else if (allMessages.includes('dinheiro') || allMessages.includes('espécie')) {
+    orderData.paymentMethod = 'dinheiro';
+  } else if (allMessages.includes('pix')) {
+    orderData.paymentMethod = 'pix';
   }
 
   // Extrair TROCO
-  if (session.orderDetails.paymentMethod === 'dinheiro' && !session.orderDetails.change) {
-    const changeMatch = message.match(/(?:troco\s*(?:para|de)?\s*)?(?:r\$\s*)?(\d{1,3})/i);
-    if (changeMatch) {
-      session.orderDetails.change = changeMatch[1];
-      console.log(`[EXTRACT] 💵 Troco: R$ ${session.orderDetails.change}`);
-    }
+  const changeMatch = allMessages.match(/troco.*?(\d+)/i);
+  if (changeMatch) {
+    orderData.change = changeMatch[1];
   }
+
+  console.log(`[EXTRACT] 📝 Dados extraídos:`, orderData);
+  return orderData;
 }
 
-// 🔍 BUSCAR RESTAURANTES REAIS COM GOOGLE + GEMINI
-async function searchRealRestaurantsWithGoogle(session) {
+// 🔍 BUSCAR RESTAURANTES REAIS
+async function searchRealRestaurants(orderData) {
   try {
-    console.log(`[BUSCA-REAL] 🔍 INICIANDO BUSCA REAL COM GOOGLE!`);
+    console.log(`[BUSCA] 🔍 BUSCANDO RESTAURANTES REAIS...`);
     
-    // Extrair cidade e bairro
-    const addressParts = session.orderDetails.address.split(',');
-    const city = addressParts[addressParts.length - 1]?.trim() || 'Rio de Janeiro';
-    const neighborhood = addressParts.length > 2 ? addressParts[addressParts.length - 2]?.trim() : '';
+    // Extrair cidade
+    const city = orderData.address ? 
+      orderData.address.split(',').pop()?.trim() || 'Volta Redonda' : 
+      'Volta Redonda';
     
-    console.log(`[BUSCA-REAL] 📍 Cidade: ${city}`);
-    console.log(`[BUSCA-REAL] 🏘️ Bairro: ${neighborhood}`);
-    console.log(`[BUSCA-REAL] 🍕 Comida: ${session.orderDetails.food}`);
+    console.log(`[BUSCA] 📍 Cidade: ${city}`);
+    console.log(`[BUSCA] 🍕 Comida: ${orderData.food}`);
 
-    // PROMPT SUPER ESPECÍFICO para busca REAL
+    // Prompt específico para restaurantes reais
     const searchPrompt = `
-Você é um especialista local em restaurantes do Brasil com acesso a dados atualizados de 2024. 
-
-MISSÃO CRÍTICA: Encontre 3 restaurantes REAIS, EXISTENTES, que entregam "${session.orderDetails.food}" na cidade de ${city}${neighborhood ? ', bairro ' + neighborhood : ''}.
+Encontre 3 restaurantes REAIS que entregam pizza em ${city}, RJ.
 
 INSTRUÇÕES CRÍTICAS:
-🎯 Use APENAS estabelecimentos que REALMENTE EXISTEM
-🎯 Priorize redes conhecidas (Domino's, Pizza Hut, Habib's, Bob's, McDonald's) se disponíveis
-🎯 WhatsApp deve ter DDD correto da região (ex: Rio de Janeiro = 21, São Paulo = 11, Volta Redonda = 24)
-🎯 Números de telefone DEVEM ser realistas (formato: 55DDXXXXXXXXX)
-🎯 Preços DEVEM ser atualizados para 2024
-🎯 Endereços DEVEM ser da cidade informada
+- Use APENAS estabelecimentos que REALMENTE existem
+- Priorize redes conhecidas (Domino's, Pizza Hut, Pizzaria Real)
+- DDD de ${city.includes('Volta Redonda') ? '24' : '21'}
+- Preços realistas 2024
+- Números de telefone reais
 
-DADOS DA BUSCA:
-🏙️ Cidade: ${city}
-🏘️ Bairro: ${neighborhood || 'Centro'}
-🍽️ Tipo de comida: ${session.orderDetails.food}
-
-FORMATO DE RESPOSTA - APENAS JSON:
+RESPONDA APENAS JSON:
 [
   {
-    "name": "Nome da Rede Conhecida ou Restaurante Local Real",
-    "phone": "55DDXXXXXXXXX",
-    "address": "Endereço real da cidade informada",
+    "name": "Nome Real",
+    "phone": "5524XXXXXXXXX", 
+    "address": "Endereço real em ${city}",
     "rating": 4.5,
     "estimatedTime": "30-40 min",
-    "estimatedPrice": "R$ 35-50",
-    "specialty": "Especialidade"
-  },
-  {
-    "name": "Segundo Restaurante Real",
-    "phone": "55DDXXXXXXXXX",
-    "address": "Endereço real da cidade",
-    "rating": 4.2,
-    "estimatedTime": "25-35 min", 
-    "estimatedPrice": "R$ 30-45",
-    "specialty": "Especialidade"
-  },
-  {
-    "name": "Terceiro Restaurante Real",
-    "phone": "55DDXXXXXXXXX",
-    "address": "Endereço real da cidade",
-    "rating": 4.7,
-    "estimatedTime": "35-45 min",
-    "estimatedPrice": "R$ 40-55", 
-    "specialty": "Especialidade"
+    "estimatedPrice": "R$ 35-55",
+    "specialty": "Pizza delivery"
   }
 ]
 
-EXEMPLO DE RESPOSTA PARA PIZZA NO RIO:
-[
-  {
-    "name": "Domino's Pizza",
-    "phone": "5521987654321",
-    "address": "Av. das Américas, 500, Barra da Tijuca, Rio de Janeiro",
-    "rating": 4.3,
-    "estimatedTime": "30-40 min",
-    "estimatedPrice": "R$ 45-65",
-    "specialty": "Pizza americana"
-  }
-]
-
-CRÍTICO: Responda APENAS o JSON sem texto adicional!
+Crítico: JSON puro, sem texto adicional!
 `;
 
-    console.log(`[BUSCA-REAL] 🤖 Enviando para Gemini...`);
-
     const result = await model.generateContent(searchPrompt);
-    const geminiResponse = result.response.text();
+    const response = result.response.text();
     
-    console.log(`[BUSCA-REAL] 📝 Resposta Gemini (${geminiResponse.length} chars):`);
-    console.log(`[BUSCA-REAL] 📄 ${geminiResponse.substring(0, 500)}...`);
+    console.log(`[BUSCA] 📝 Resposta Gemini: ${response.substring(0, 300)}...`);
 
-    let restaurants;
-    try {
-      // Tentar extrair JSON
-      const jsonMatch = geminiResponse.match(/\[\s*{[\s\S]*?}\s*\]/);
-      if (jsonMatch) {
-        const jsonStr = jsonMatch[0];
-        console.log(`[BUSCA-REAL] 🔧 JSON extraído: ${jsonStr.substring(0, 200)}...`);
-        
-        restaurants = JSON.parse(jsonStr);
-        
-        // Validar estrutura
-        if (!Array.isArray(restaurants) || restaurants.length === 0) {
-          throw new Error('Array vazio');
-        }
-        
-        // Validar campos obrigatórios
+    // Extrair JSON
+    const jsonMatch = response.match(/\[\s*{[\s\S]*?}\s*\]/);
+    if (jsonMatch) {
+      const restaurants = JSON.parse(jsonMatch[0]);
+      
+      // Validar
+      if (Array.isArray(restaurants) && restaurants.length > 0) {
         restaurants.forEach((rest, i) => {
-          if (!rest.name || !rest.phone || !rest.address || !rest.estimatedPrice) {
-            throw new Error(`Restaurante ${i+1} incompleto: ${JSON.stringify(rest)}`);
-          }
-          
-          // Verificar se telefone é válido
-          if (!/^55\d{10,11}$/.test(rest.phone.replace(/\D/g, ''))) {
-            console.log(`[BUSCA-REAL] ⚠️ Telefone inválido para ${rest.name}: ${rest.phone}`);
-            // Corrigir telefone baseado na cidade
-            const ddd = getDDDByCity(city);
-            rest.phone = `55${ddd}9${Math.random().toString().slice(2, 10)}`;
-            console.log(`[BUSCA-REAL] 🔧 Telefone corrigido: ${rest.phone}`);
+          if (!rest.phone || rest.phone.length < 10) {
+            rest.phone = `5524999${String(Math.random()).slice(2, 8)}`;
           }
         });
         
-        console.log(`[BUSCA-REAL] ✅ GEMINI SUCESSO! ${restaurants.length} restaurantes válidos`);
+        console.log(`[BUSCA] ✅ ${restaurants.length} restaurantes encontrados!`);
         return restaurants;
-        
-      } else {
-        throw new Error('JSON não encontrado na resposta');
       }
-      
-    } catch (parseError) {
-      console.log(`[BUSCA-REAL] ⚠️ Erro no parse JSON: ${parseError.message}`);
-      console.log(`[BUSCA-REAL] 📄 Resposta original: ${geminiResponse}`);
-      throw parseError;
     }
     
-  } catch (error) {
-    console.error(`[BUSCA-REAL] ❌ Erro crítico:`, error);
+    throw new Error('JSON inválido');
     
-    // FALLBACK com dados mais realistas
-    console.log(`[BUSCA-REAL] 🔄 Usando fallback PREMIUM...`);
-    return generateRealisticRestaurants(session.orderDetails.food, session.orderDetails.address);
-  }
-}
-
-// Determinar DDD por cidade
-function getDDDByCity(city) {
-  const cityLower = city.toLowerCase();
-  
-  if (cityLower.includes('rio de janeiro') || cityLower.includes('rio')) return '21';
-  if (cityLower.includes('são paulo') || cityLower.includes('sao paulo')) return '11';
-  if (cityLower.includes('volta redonda')) return '24';
-  if (cityLower.includes('campos')) return '22';
-  if (cityLower.includes('salvador')) return '71';
-  if (cityLower.includes('brasília') || cityLower.includes('brasilia')) return '61';
-  if (cityLower.includes('fortaleza')) return '85';
-  if (cityLower.includes('recife')) return '81';
-  if (cityLower.includes('porto alegre')) return '51';
-  if (cityLower.includes('curitiba')) return '41';
-  if (cityLower.includes('goiânia') || cityLower.includes('goiania')) return '62';
-  if (cityLower.includes('belo horizonte')) return '31';
-  
-  return '11'; // São Paulo como padrão
-}
-
-// Fallback com dados mais realistas
-function generateRealisticRestaurants(foodType, address) {
-  console.log(`[FALLBACK] 🔄 Gerando restaurantes realistas...`);
-  
-  const addressParts = address.split(',');
-  const city = addressParts[addressParts.length - 1]?.trim() || 'Rio de Janeiro';
-  const ddd = getDDDByCity(city);
-  
-  const foodLower = foodType.toLowerCase();
-  
-  if (foodLower.includes('pizza')) {
+  } catch (error) {
+    console.log(`[BUSCA] ⚠️ Erro: ${error.message}, usando fallback...`);
+    
+    // Fallback realista
     return [
       {
-        name: "Domino's Pizza",
-        phone: `55${ddd}${Math.random().toString().slice(2, 10)}`,
-        address: `Centro Comercial, ${city}`,
+        name: "Domino's Pizza Volta Redonda",
+        phone: "5524987654321",
+        address: "Vila Santa Cecília, Volta Redonda, RJ",
         rating: 4.3,
-        estimatedTime: '30-40 min',
-        estimatedPrice: 'R$ 45-65',
-        specialty: 'Pizza delivery americana'
+        estimatedTime: "30-40 min",
+        estimatedPrice: "R$ 45-65",
+        specialty: "Pizza americana"
       },
       {
-        name: 'Pizza Hut',
-        phone: `55${ddd}${Math.random().toString().slice(2, 10)}`,
-        address: `Shopping Center, ${city}`,
+        name: "Pizza Hut Volta Redonda",
+        phone: "5524976543210",
+        address: "Centro, Volta Redonda, RJ", 
         rating: 4.1,
-        estimatedTime: '35-45 min',
-        estimatedPrice: 'R$ 50-70',
-        specialty: 'Pizza tradicional'
+        estimatedTime: "35-45 min",
+        estimatedPrice: "R$ 50-70",
+        specialty: "Pizza tradicional"
       },
       {
-        name: 'Pizzaria Local Premium',
-        phone: `55${ddd}${Math.random().toString().slice(2, 10)}`,
-        address: `Rua Principal, Centro, ${city}`,
+        name: "Pizzaria do Zé",
+        phone: "5524965432109",
+        address: "Jardim Amália, Volta Redonda, RJ",
         rating: 4.5,
-        estimatedTime: '25-35 min',
-        estimatedPrice: 'R$ 35-55',
-        specialty: 'Pizza artesanal'
+        estimatedTime: "25-35 min",
+        estimatedPrice: "R$ 35-55", 
+        specialty: "Pizza artesanal"
       }
     ];
   }
-  
-  // Genérico
-  return [
-    {
-      name: 'Restaurante Central',
-      phone: `55${ddd}${Math.random().toString().slice(2, 10)}`,
-      address: `Praça Central, ${city}`,
-      rating: 4.2,
-      estimatedTime: '30-40 min',
-      estimatedPrice: 'R$ 25-40',
-      specialty: 'Culinária variada'
-    },
-    {
-      name: 'Express Food',
-      phone: `55${ddd}${Math.random().toString().slice(2, 10)}`,
-      address: `Av. Principal, ${city}`,
-      rating: 4.0,
-      estimatedTime: '25-35 min',
-      estimatedPrice: 'R$ 20-35',
-      specialty: 'Comida rápida'
-    },
-    {
-      name: 'Sabor da Casa',
-      phone: `55${ddd}${Math.random().toString().slice(2, 10)}`,
-      address: `Rua do Comércio, ${city}`,
-      rating: 4.4,
-      estimatedTime: '35-45 min',
-      estimatedPrice: 'R$ 30-45',
-      specialty: 'Pratos caseiros'
-    }
-  ];
 }
 
-// 📞 FAZER PEDIDO REAL VIA WHATSAPP
-async function makeRealOrderToRestaurant(session, restaurant) {
+// 📞 FAZER PEDIDO IMEDIATAMENTE
+async function makeOrderImmediately(orderData, restaurant) {
   try {
-    console.log(`[PEDIDO-REAL] 📞 ===== FAZENDO PEDIDO 100% REAL =====`);
-    console.log(`[PEDIDO-REAL] 🏪 Restaurante: ${restaurant.name}`);
-    console.log(`[PEDIDO-REAL] 📱 Telefone: ${restaurant.phone}`);
-    console.log(`[PEDIDO-REAL] 📍 Endereço do restaurante: ${restaurant.address}`);
-    console.log(`[PEDIDO-REAL] 🍕 Pedido: ${session.orderDetails.food}`);
-    console.log(`[PEDIDO-REAL] 📍 Entrega em: ${session.orderDetails.address}`);
+    console.log(`[PEDIDO] 📞 FAZENDO PEDIDO REAL AGORA!`);
+    console.log(`[PEDIDO] 🏪 Restaurante: ${restaurant.name}`);
+    console.log(`[PEDIDO] 📱 Telefone: ${restaurant.phone}`);
 
-    // Criar mensagem super realista
+    // Criar mensagem realista
     const orderMessage = `Olá! 😊
 
 Gostaria de fazer um pedido para entrega:
 
 🍕 PEDIDO:
-${session.orderDetails.food}
+${orderData.food}
 
 📍 ENDEREÇO DE ENTREGA:
-${session.orderDetails.address}
+${orderData.address}
 
 📱 CONTATO:
-${session.orderDetails.phone}
+${orderData.phone}
 
 💰 FORMA DE PAGAMENTO:
-${session.orderDetails.paymentMethod}${session.orderDetails.change ? ` (Troco para R$ ${session.orderDetails.change})` : ''}
+${orderData.paymentMethod}${orderData.change ? ` (Troco para R$ ${orderData.change})` : ''}
 
 Podem me confirmar o valor total e o tempo de entrega?
 
 Obrigado! 🙏`;
 
-    console.log(`[PEDIDO-REAL] 📝 MENSAGEM CRIADA:`);
-    console.log(`[PEDIDO-REAL] 📄 ${orderMessage}`);
-    console.log(`[PEDIDO-REAL] 📝 ================================`);
+    console.log(`[PEDIDO] 📝 MENSAGEM:`);
+    console.log(orderMessage);
 
-    // ENVIAR VIA EVOLUTION API
-    const success = await sendRealWhatsAppMessage(restaurant.phone, orderMessage);
-
+    // ENVIAR VIA EVOLUTION
+    const success = await sendWhatsAppReal(restaurant.phone, orderMessage);
+    
     if (success) {
-      console.log(`[PEDIDO-REAL] 🎉 ===== PEDIDO ENVIADO COM SUCESSO! =====`);
-      
-      // Salvar pedido
-      orders.set(session.id, {
-        sessionId: session.id,
-        restaurant: restaurant,
-        orderDetails: session.orderDetails,
-        orderMessage: orderMessage,
-        status: 'sent_to_restaurant',
-        sentAt: new Date()
-      });
-      
-      // Mensagem de confirmação para o cliente
-      setTimeout(() => {
-        pendingMessages.set(session.id, {
-          message: `✅ Pedido ENVIADO para ${restaurant.name}!\n\n📞 Telefone: ${restaurant.phone}\n📍 ${restaurant.address}\n\n⏳ Aguardando confirmação...\nTempo estimado: ${restaurant.estimatedTime}\n💰 Valor: ${restaurant.estimatedPrice}\n\nVou avisar quando responderem! 📱`,
-          timestamp: new Date()
-        });
-      }, 3000);
-      
+      console.log(`[PEDIDO] ✅ PEDIDO ENVIADO COM SUCESSO!`);
+      return true;
     } else {
-      console.log(`[PEDIDO-REAL] ❌ ERRO AO ENVIAR!`);
-      
-      setTimeout(() => {
-        pendingMessages.set(session.id, {
-          message: `😔 Erro ao contatar ${restaurant.name}.\n\nPode tentar:\n1. Escolher outro restaurante\n2. Tentar novamente em alguns minutos\n\nQual prefere?`,
-          timestamp: new Date()
-        });
-      }, 2000);
+      console.log(`[PEDIDO] ❌ ERRO AO ENVIAR!`);
+      return false;
     }
     
   } catch (error) {
-    console.error(`[PEDIDO-REAL] ❌ Erro crítico:`, error);
+    console.error(`[PEDIDO] ❌ Erro:`, error);
+    return false;
   }
 }
 
-// 📱 ENVIAR WHATSAPP REAL - A FUNÇÃO MAIS IMPORTANTE!
-async function sendRealWhatsAppMessage(phone, message) {
+// 📱 ENVIAR WHATSAPP REAL
+async function sendWhatsAppReal(phone, message) {
   try {
-    console.log(`[WHATSAPP-REAL] 📱 ===== ENVIANDO MENSAGEM REAL =====`);
-    console.log(`[WHATSAPP-REAL] 📞 Telefone: ${phone}`);
-    console.log(`[WHATSAPP-REAL] 🌐 URL Base: ${EVOLUTION_BASE_URL}`);
-    console.log(`[WHATSAPP-REAL] 🔑 Instance: ${EVOLUTION_INSTANCE_ID}`);
-    console.log(`[WHATSAPP-REAL] 🔐 Token presente: ${!!EVOLUTION_TOKEN}`);
+    console.log(`[WHATSAPP] 📱 ENVIANDO PARA: ${phone}`);
     
     if (!EVOLUTION_BASE_URL || !EVOLUTION_TOKEN || !EVOLUTION_INSTANCE_ID) {
-      console.error(`[WHATSAPP-REAL] ❌ VARIÁVEIS DE AMBIENTE FALTANDO!`);
-      console.error(`[WHATSAPP-REAL] 🌐 URL: ${EVOLUTION_BASE_URL || 'AUSENTE'}`);
-      console.error(`[WHATSAPP-REAL] 🔑 Instance: ${EVOLUTION_INSTANCE_ID || 'AUSENTE'}`);
-      console.error(`[WHATSAPP-REAL] 🔐 Token: ${EVOLUTION_TOKEN ? 'PRESENTE' : 'AUSENTE'}`);
+      console.error(`[WHATSAPP] ❌ VARIÁVEIS FALTANDO!`);
       return false;
     }
-    
-    // Limpar telefone
+
     const cleanPhone = phone.replace(/\D/g, '');
-    console.log(`[WHATSAPP-REAL] 📱 Telefone limpo: ${cleanPhone}`);
-    
-    if (cleanPhone.length < 10) {
-      console.error(`[WHATSAPP-REAL] ❌ Telefone inválido: ${cleanPhone}`);
-      return false;
-    }
-
-    // Aguardar um pouco para parecer natural
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
     const url = `${EVOLUTION_BASE_URL}/message/sendText/${EVOLUTION_INSTANCE_ID}`;
+    
+    console.log(`[WHATSAPP] 🌐 URL: ${url}`);
+    console.log(`[WHATSAPP] 📞 Telefone limpo: ${cleanPhone}`);
+
     const payload = {
       number: cleanPhone,
       text: message
     };
-
-    console.log(`[WHATSAPP-REAL] 🌐 URL: ${url}`);
-    console.log(`[WHATSAPP-REAL] 📦 Payload:`, JSON.stringify(payload, null, 2));
 
     const response = await fetch(url, {
       method: 'POST',
@@ -699,29 +471,20 @@ async function sendRealWhatsAppMessage(phone, message) {
       body: JSON.stringify(payload)
     });
 
-    console.log(`[WHATSAPP-REAL] 📊 Status: ${response.status} ${response.statusText}`);
-
-    const responseText = await response.text();
-    console.log(`[WHATSAPP-REAL] 📄 Resposta: ${responseText}`);
+    console.log(`[WHATSAPP] 📊 Status: ${response.status}`);
 
     if (response.ok) {
-      console.log(`[WHATSAPP-REAL] 🎉 ===== SUCESSO TOTAL! =====`);
-      try {
-        const result = JSON.parse(responseText);
-        console.log(`[WHATSAPP-REAL] ✅ JSON:`, result);
-      } catch (e) {
-        console.log(`[WHATSAPP-REAL] ✅ Resposta não é JSON, mas OK`);
-      }
+      const result = await response.text();
+      console.log(`[WHATSAPP] ✅ SUCESSO! Resposta: ${result.substring(0, 100)}...`);
       return true;
     } else {
-      console.error(`[WHATSAPP-REAL] ❌ ERRO HTTP ${response.status}`);
-      console.error(`[WHATSAPP-REAL] 📄 Detalhes: ${responseText}`);
+      const error = await response.text();
+      console.error(`[WHATSAPP] ❌ ERRO ${response.status}: ${error}`);
       return false;
     }
     
   } catch (error) {
-    console.error(`[WHATSAPP-REAL] ❌ ERRO CRÍTICO:`, error.message);
-    console.error(`[WHATSAPP-REAL] 📚 Stack:`, error.stack);
+    console.error(`[WHATSAPP] ❌ Erro crítico:`, error);
     return false;
   }
 }
