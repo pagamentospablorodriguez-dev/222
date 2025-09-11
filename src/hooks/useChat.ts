@@ -7,7 +7,6 @@ export const useChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId] = useState(() => {
-    // Recuperar sessionId do localStorage ou criar novo
     const saved = localStorage.getItem('ia-fome-session-id');
     return saved || uuidv4();
   });
@@ -41,17 +40,6 @@ export const useChat = () => {
     }
   }, [messages, sessionId]);
 
-  // Listener para novas mensagens da IA
-  useEffect(() => {
-    const handleNewAIMessage = (event: CustomEvent) => {
-      const newMessage = event.detail;
-      setMessages(prev => [...prev, newMessage]);
-    };
-
-    window.addEventListener('newAIMessage', handleNewAIMessage as EventListener);
-    return () => window.removeEventListener('newAIMessage', handleNewAIMessage as EventListener);
-  }, []);
-
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
@@ -59,6 +47,18 @@ export const useChat = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  // Adicionar nova mensagem da IA
+  const addAIMessage = useCallback((content: string) => {
+    const assistantMessage: Message = {
+      id: uuidv4(),
+      content,
+      role: 'assistant',
+      timestamp: new Date(),
+      status: 'sent'
+    };
+    setMessages(prev => [...prev, assistantMessage]);
+  }, []);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim()) return;
@@ -75,42 +75,20 @@ export const useChat = () => {
     setIsLoading(true);
 
     try {
-      // Mark user message as sent IMEDIATAMENTE
+      // Marcar mensagem como enviada
       setMessages(prev => prev.map(msg =>
         msg.id === userMessage.id ? { ...msg, status: 'sent' } : msg
       ));
 
-      // Send to backend com retry automático
-      let attempts = 0;
-      let response;
-      
-      while (attempts < 3) {
-        try {
-          response = await chatService.sendMessage({
-            sessionId,
-            message: content.trim(),
-            messages: messages
-          });
-          
-          if (response.success) {
-            break;
-          }
-          
-          attempts++;
-          if (attempts < 3) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-        } catch (error) {
-          attempts++;
-          if (attempts < 3) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          } else {
-            throw error;
-          }
-        }
-      }
+      // Enviar para backend
+      const response = await chatService.sendMessage({
+        sessionId,
+        message: content.trim(),
+        messages: messages
+      });
 
-      if (response?.success && response.data) {
+      if (response.success && response.data) {
+        // Resposta imediata da IA
         const assistantMessage: Message = {
           id: uuidv4(),
           content: response.data.message,
@@ -120,18 +98,56 @@ export const useChat = () => {
         };
 
         setMessages(prev => [...prev, assistantMessage]);
+
+        // Verificar se precisa buscar restaurantes
+        if (response.data.shouldSearchRestaurants) {
+          console.log('Iniciando busca de restaurantes...');
+          
+          // Aguardar 3 segundos e buscar
+          setTimeout(async () => {
+            try {
+              const searchResponse = await fetch('/.netlify/functions/search-restaurants', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  sessionId,
+                  orderData: response.data.orderData
+                })
+              });
+
+              if (searchResponse.ok) {
+                const searchData = await searchResponse.json();
+                if (searchData.success && searchData.restaurants) {
+                  // Construir mensagem com opções
+                  let optionsMessage = "🍕 Encontrei ótimas opções para você:\n\n";
+                  searchData.restaurants.forEach((rest: any, index: number) => {
+                    optionsMessage += `${index + 1}. **${rest.name}**\n`;
+                    optionsMessage += `   ${rest.specialty}\n`;
+                    optionsMessage += `   ⏰ ${rest.estimatedTime}\n`;
+                    optionsMessage += `   💰 ${rest.price}\n\n`;
+                  });
+                  optionsMessage += "Qual restaurante você prefere? Digite o número! 😊";
+
+                  // Adicionar mensagem automaticamente
+                  addAIMessage(optionsMessage);
+                }
+              }
+            } catch (error) {
+              console.error('Erro na busca:', error);
+              addAIMessage('Desculpe, houve um erro na busca. Tente novamente.');
+            }
+          }, 3000);
+        }
       } else {
-        throw new Error(response?.error || 'Erro ao enviar mensagem');
+        throw new Error(response.error || 'Erro ao enviar mensagem');
       }
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('Erro ao enviar mensagem:', error);
 
-      // Mark user message as error
       setMessages(prev => prev.map(msg =>
         msg.id === userMessage.id ? { ...msg, status: 'error' } : msg
       ));
 
-      // Add error message
       const errorMessage: Message = {
         id: uuidv4(),
         content: 'Desculpe, houve um erro ao processar sua mensagem. Tente novamente.',
@@ -144,7 +160,7 @@ export const useChat = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [sessionId, messages]);
+  }, [sessionId, messages, addAIMessage]);
 
   const retryMessage = useCallback((messageId: string) => {
     const message = messages.find(msg => msg.id === messageId);
