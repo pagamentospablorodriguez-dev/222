@@ -40,7 +40,18 @@ export const useChat = () => {
       localStorage.setItem(`ia-fome-messages-${sessionId}`, JSON.stringify(messages));
     }
   }, [messages, sessionId]);
-  
+
+  // Listener para novas mensagens da IA
+  useEffect(() => {
+    const handleNewAIMessage = (event: CustomEvent) => {
+      const newMessage = event.detail;
+      setMessages(prev => [...prev, newMessage]);
+    };
+
+    window.addEventListener('newAIMessage', handleNewAIMessage as EventListener);
+    return () => window.removeEventListener('newAIMessage', handleNewAIMessage as EventListener);
+  }, []);
+
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
@@ -64,19 +75,42 @@ export const useChat = () => {
     setIsLoading(true);
 
     try {
-      // Mark user message as sent
-      setMessages(prev => prev.map(msg => 
+      // Mark user message as sent IMEDIATAMENTE
+      setMessages(prev => prev.map(msg =>
         msg.id === userMessage.id ? { ...msg, status: 'sent' } : msg
       ));
 
-      // Send to backend
-      const response = await chatService.sendMessage({
-        sessionId,
-        message: content.trim(),
-        messages: messages
-      });
+      // Send to backend com retry automático
+      let attempts = 0;
+      let response;
+      
+      while (attempts < 3) {
+        try {
+          response = await chatService.sendMessage({
+            sessionId,
+            message: content.trim(),
+            messages: messages
+          });
+          
+          if (response.success) {
+            break;
+          }
+          
+          attempts++;
+          if (attempts < 3) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        } catch (error) {
+          attempts++;
+          if (attempts < 3) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          } else {
+            throw error;
+          }
+        }
+      }
 
-      if (response.success && response.data) {
+      if (response?.success && response.data) {
         const assistantMessage: Message = {
           id: uuidv4(),
           content: response.data.message,
@@ -87,13 +121,13 @@ export const useChat = () => {
 
         setMessages(prev => [...prev, assistantMessage]);
       } else {
-        throw new Error(response.error || 'Erro ao enviar mensagem');
+        throw new Error(response?.error || 'Erro ao enviar mensagem');
       }
     } catch (error) {
       console.error('Error sending message:', error);
-      
+
       // Mark user message as error
-      setMessages(prev => prev.map(msg => 
+      setMessages(prev => prev.map(msg =>
         msg.id === userMessage.id ? { ...msg, status: 'error' } : msg
       ));
 
@@ -124,7 +158,7 @@ export const useChat = () => {
     localStorage.removeItem('ia-fome-session-id');
     setMessages([]);
   }, [sessionId]);
-  
+
   return {
     messages,
     isLoading,
