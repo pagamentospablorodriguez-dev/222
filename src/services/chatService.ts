@@ -28,22 +28,22 @@ class ChatService {
     // Interceptor para logs detalhados
     this.api.interceptors.request.use(
       (config) => {
-        console.log('📡 Enviando requisição:', config.method?.toUpperCase(), config.url);
+        console.log('📡 ENVIANDO REQ:', config.method?.toUpperCase(), config.url);
         return config;
       },
       (error) => {
-        console.error('❌ Erro na requisição:', error);
+        console.error('❌ ERRO REQ:', error);
         return Promise.reject(error);
       }
     );
 
     this.api.interceptors.response.use(
       (response) => {
-        console.log('✅ Resposta recebida:', response.status, response.config.url);
+        console.log('✅ RESP RECEBIDA:', response.status, response.config.url);
         return response;
       },
       (error) => {
-        console.error('❌ Erro na resposta:', error.response?.status, error.message);
+        console.error('❌ ERRO RESP:', error.response?.status, error.message);
         return Promise.reject(error);
       }
     );
@@ -51,8 +51,8 @@ class ChatService {
 
   async sendMessage(request: SendMessageRequest): Promise<ApiResponse<SendMessageResponse>> {
     try {
-      console.log('🚀 Enviando mensagem para chat service...');
-      console.log('📊 Dados:', {
+      console.log('🚀 ENVIANDO PARA CHAT SERVICE...');
+      console.log('📊 DADOS:', {
         sessionId: request.sessionId,
         message: request.message.substring(0, 50) + '...',
         messagesCount: request.messages.length
@@ -69,14 +69,14 @@ class ChatService {
         }))
       });
 
-      console.log('✅ Resposta do servidor:', response.data);
+      console.log('✅ RESPOSTA SERVIDOR:', response.data);
 
       return {
         success: true,
         data: response.data
       };
     } catch (error: any) {
-      console.error('❌ Erro no chat service:', error);
+      console.error('❌ ERRO CHAT SERVICE:', error);
       
       let errorMessage = 'Erro na comunicação com o servidor';
       
