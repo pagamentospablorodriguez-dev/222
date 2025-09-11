@@ -1,10 +1,10 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Configurações
-const GEMINI_API_KEY = process.env.VITE_GOOGLE_AI_API_KEY || 'AIzaSyAIW7K98cbAdpP-T9QeCdrMqSU9IZWZbRk';
-const EVOLUTION_BASE_URL = process.env.VITE_EVOLUTION_API_URL || 'https://api.evoapicloud.com';
-const EVOLUTION_TOKEN = process.env.VITE_EVOLUTION_TOKEN || 'EDF0C4C1E6CF-4D7B-A825-D7D24868E7FB';
-const EVOLUTION_INSTANCE_ID = process.env.VITE_EVOLUTION_INSTANCE_ID || '26935dbc-39ab-4b81-92b7-a09f57325a0c';
+const GEMINI_API_KEY = process.env.VITE_GOOGLE_AI_API_KEY;
+const EVOLUTION_BASE_URL = process.env.VITE_EVOLUTION_API_URL;
+const EVOLUTION_TOKEN = process.env.VITE_EVOLUTION_TOKEN;
+const EVOLUTION_INSTANCE_ID = process.env.VITE_EVOLUTION_INSTANCE_ID;
 
 // Inicializar Gemini
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
