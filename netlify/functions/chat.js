@@ -111,6 +111,12 @@ exports.handler = async (event, context) => {
     }
 
     console.log(`[CHAT] 🚀 PROCESSANDO: ${sessionId} - ${message}`);
+    console.log(`[CHAT] 🔧 ENV CHECK:`, {
+      hasGeminiKey: !!GEMINI_API_KEY,
+      hasEvolutionUrl: !!EVOLUTION_BASE_URL,
+      hasEvolutionToken: !!EVOLUTION_TOKEN,
+      hasEvolutionInstance: !!EVOLUTION_INSTANCE_ID
+    });
 
     // Obter ou criar sessão
     let session = sessions.get(sessionId);
@@ -147,16 +153,20 @@ exports.handler = async (event, context) => {
       if (choice >= 1 && choice <= session.restaurants.length) {
         const selectedRestaurant = session.restaurants[choice - 1];
         
-        console.log(`[CHAT] 🎯 Cliente escolheu: ${selectedRestaurant.name}`);
+        console.log(`[CHAT] 🎯 CLIENTE ESCOLHEU: ${selectedRestaurant.name}`);
+        console.log(`[CHAT] 📞 TELEFONE: ${selectedRestaurant.phone}`);
         
         session.selectedRestaurant = selectedRestaurant;
         session.stage = 'ordering';
         sessions.set(sessionId, session);
 
-        // FAZER PEDIDO REAL IMEDIATAMENTE!
-        setTimeout(() => {
-          makeRealOrderToRestaurant(session, selectedRestaurant);
-        }, 2000);
+        // 🚀 FAZER PEDIDO REAL IMEDIATAMENTE!
+        console.log(`[CHAT] 📞 INICIANDO PEDIDO REAL AGORA!!!`);
+        
+        // Não aguardar - fazer IMEDIATAMENTE mas sem bloquear resposta
+        makeRealOrderToRestaurant(session, selectedRestaurant)
+          .then(() => console.log(`[CHAT] ✅ Pedido processado com sucesso!`))
+          .catch(error => console.error(`[CHAT] ❌ Erro no pedido:`, error));
 
         return {
           statusCode: 200,
@@ -480,7 +490,7 @@ function generatePremiumRestaurants(foodType, city) {
   if (foodLower.includes('pizza')) {
     return [
       {
-        name: 'Pizzaria Dom Giuseppe',
+        name: 'Pizzaria Bella Napoli',
         phone: `55${ddd}987654321`,
         address: `Rua das Pizzas, 123, ${city}`,
         rating: 4.5,
@@ -489,22 +499,22 @@ function generatePremiumRestaurants(foodType, city) {
         specialty: 'Pizza italiana artesanal'
       },
       {
-        name: 'Pizza & Arte',
+        name: 'Pizza Hut',
         phone: `55${ddd}976543210`, 
         address: `Av. dos Sabores, 456, ${city}`,
         rating: 4.2,
         estimatedTime: '35-45 min',
         estimatedPrice: 'R$ 38-58',
-        specialty: 'Pizza gourmet premium'
+        specialty: 'Pizza americana'
       },
       {
-        name: 'Dona Maria Pizzaria',
+        name: `Domino's Pizza`,
         phone: `55${ddd}965432109`,
         address: `Rua Tradicional, 789, ${city}`,
         rating: 4.7,
         estimatedTime: '25-35 min',
         estimatedPrice: 'R$ 28-48',
-        specialty: 'Pizza tradicional brasileira'
+        specialty: 'Pizza entrega rápida'
       }
     ];
   } else if (foodLower.includes('sushi') || foodLower.includes('japon')) {
@@ -571,103 +581,175 @@ function generatePremiumRestaurants(foodType, city) {
   }
 }
 
-// 📞 FAZER PEDIDO REAL NO RESTAURANTE VIA WHATSAPP!
+// 📞 FAZER PEDIDO REAL NO RESTAURANTE VIA WHATSAPP! 🔥🔥🔥
 async function makeRealOrderToRestaurant(session, restaurant) {
   try {
-    console.log(`[PEDIDO] 📞 FAZENDO PEDIDO REAL no ${restaurant.name}!`);
+    console.log(`[PEDIDO] 📞 ===== FAZENDO PEDIDO REAL =====`);
+    console.log(`[PEDIDO] 🏪 Restaurante: ${restaurant.name}`);
+    console.log(`[PEDIDO] 📱 Telefone: ${restaurant.phone}`);
+    console.log(`[PEDIDO] 🍕 Pedido: ${session.orderDetails.food}`);
+    console.log(`[PEDIDO] 📍 Endereço: ${session.orderDetails.address}`);
+    console.log(`[PEDIDO] 💰 Pagamento: ${session.orderDetails.paymentMethod}`);
 
-    // Gerar mensagem humanizada para o restaurante usando Gemini
+    // CRIAR MENSAGEM PREMIUM com Gemini
     const orderPrompt = `
-Crie uma mensagem de pedido para um restaurante via WhatsApp. A mensagem deve ser:
-- Natural e educada, como se fosse um cliente real
-- Com todas as informações necessárias
-- Formatada de forma clara e organizada
-- Tom amigável mas objetivo
+Crie uma mensagem de pedido PERFEITA para enviar via WhatsApp para um restaurante. A mensagem deve ser:
+
+✅ NATURAL e EDUCADA (como se fosse um cliente real)
+✅ COMPLETA com todas as informações
+✅ FORMATADA de forma clara e organizada
+✅ Tom AMIGÁVEL mas OBJETIVO
+✅ PROFISSIONAL
 
 DADOS DO PEDIDO:
-- Comida: ${session.orderDetails.food}
-- Endereço de entrega: ${session.orderDetails.address}
-- Telefone do cliente: ${session.orderDetails.phone}
-- Forma de pagamento: ${session.orderDetails.paymentMethod}${session.orderDetails.change ? ` (Troco para R$ ${session.orderDetails.change})` : ''}
-- Observações: ${session.orderDetails.observations || 'Nenhuma'}
+🍕 Comida: ${session.orderDetails.food}
+📍 Endereço de entrega: ${session.orderDetails.address}
+📱 Telefone do cliente: ${session.orderDetails.phone}
+💰 Forma de pagamento: ${session.orderDetails.paymentMethod}${session.orderDetails.change ? ` (Troco para R$ ${session.orderDetails.change})` : ''}
+📝 Observações: ${session.orderDetails.observations || 'Nenhuma observação especial'}
 
-RESTAURANTE: ${restaurant.name}
+🏪 RESTAURANTE: ${restaurant.name}
 
-Crie uma mensagem natural como se fosse um cliente real fazendo pedido.
+IMPORTANTE: Crie uma mensagem que soe como se fosse um cliente real fazendo pedido. Use emojis para deixar mais amigável.
+
+EXEMPLO DO TOM:
+"Olá! Gostaria de fazer um pedido para entrega..."
 `;
+
+    console.log(`[PEDIDO] 🤖 Gerando mensagem com Gemini...`);
 
     // Gerar mensagem com Gemini
     const result = await model.generateContent(orderPrompt);
     const orderMessage = result.response.text().trim();
 
-    console.log(`[PEDIDO] 📝 Mensagem gerada: ${orderMessage}`);
+    console.log(`[PEDIDO] 📝 MENSAGEM GERADA:`);
+    console.log(`[PEDIDO] 📄 ${orderMessage}`);
+    console.log(`[PEDIDO] 📝 ===============================`);
 
-    // ENVIAR MENSAGEM REAL PELO WHATSAPP!
+    // 📱 ENVIAR MENSAGEM REAL PELO WHATSAPP EVOLUTION!
+    console.log(`[PEDIDO] 🚀 ENVIANDO VIA EVOLUTION API...`);
     const whatsappSuccess = await sendRealWhatsAppMessage(restaurant.phone, orderMessage);
 
     if (whatsappSuccess) {
-      console.log(`[PEDIDO] ✅ PEDIDO ENVIADO COM SUCESSO para ${restaurant.name}!`);
+      console.log(`[PEDIDO] 🎉 ===== PEDIDO ENVIADO COM SUCESSO! =====`);
+      console.log(`[PEDIDO] ✅ Restaurante: ${restaurant.name}`);
+      console.log(`[PEDIDO] ✅ Telefone: ${restaurant.phone}`);
+      console.log(`[PEDIDO] 🎉 ========================================`);
       
-      // Adicionar mensagem de sucesso para o cliente
+      // Salvar pedido nos orders
+      orders.set(session.id, {
+        sessionId: session.id,
+        restaurant: restaurant,
+        orderDetails: session.orderDetails,
+        orderMessage: orderMessage,
+        status: 'sent_to_restaurant',
+        sentAt: new Date(),
+        timestamp: new Date()
+      });
+      
+      // Adicionar mensagem de sucesso para o cliente (após 5 segundos)
       setTimeout(() => {
         pendingMessages.set(session.id, {
-          message: `🎉 Pedido enviado para ${restaurant.name}! Eles vão confirmar em breve.\n\n⏰ Tempo estimado: ${restaurant.estimatedTime}\n💰 Valor: ${restaurant.estimatedPrice}\n\nQualquer atualização avisarei aqui! 📱`,
+          message: `🎉 Pedido enviado para ${restaurant.name}!\n\n📞 Eles vão confirmar em breve\n⏰ Tempo estimado: ${restaurant.estimatedTime}\n💰 Valor: ${restaurant.estimatedPrice}\n\nQualquer atualização avisarei aqui! 📱`,
           timestamp: new Date()
         });
+        console.log(`[PEDIDO] 📨 Mensagem de confirmação adicionada para cliente`);
       }, 5000);
       
     } else {
-      console.log(`[PEDIDO] ❌ ERRO ao enviar WhatsApp`);
+      console.log(`[PEDIDO] ❌ ===== ERRO AO ENVIAR WHATSAPP =====`);
       
       // Mensagem de erro para o cliente
       setTimeout(() => {
         pendingMessages.set(session.id, {
-          message: `😔 Erro ao contatar ${restaurant.name}. Vou tentar outro restaurante ou você pode escolher outra opção.`,
+          message: `😔 Erro ao contatar ${restaurant.name}. Vou tentar novamente ou você pode escolher outro restaurante.`,
           timestamp: new Date()
         });
       }, 3000);
     }
     
   } catch (error) {
-    console.error('[PEDIDO] ❌ Erro crítico ao fazer pedido:', error);
+    console.error('[PEDIDO] ❌ ERRO CRÍTICO ao fazer pedido:', error);
+    
+    // Mensagem de erro para o cliente
+    setTimeout(() => {
+      pendingMessages.set(session.id, {
+        message: `😔 Erro técnico ao processar pedido. Tente novamente em alguns minutos.`,
+        timestamp: new Date()
+      });
+    }, 2000);
   }
 }
 
-// 📱 ENVIAR WHATSAPP REAL - FUNCIONANDO DE VERDADE!
+// 📱 ENVIAR WHATSAPP REAL VIA EVOLUTION - A FUNÇÃO MAIS IMPORTANTE! 🔥
 async function sendRealWhatsAppMessage(phone, message) {
   try {
-    console.log(`[WHATSAPP] 📱 ENVIANDO REAL para: ${phone}`);
-    console.log(`[WHATSAPP] 📝 Mensagem: ${message.substring(0, 100)}...`);
+    console.log(`[WHATSAPP] 📱 ===== ENVIANDO MENSAGEM REAL =====`);
+    console.log(`[WHATSAPP] 📞 Para: ${phone}`);
+    console.log(`[WHATSAPP] 🌐 URL: ${EVOLUTION_BASE_URL}`);
+    console.log(`[WHATSAPP] 🔑 Instance: ${EVOLUTION_INSTANCE_ID}`);
+    console.log(`[WHATSAPP] 🔐 Token: ${EVOLUTION_TOKEN ? 'Presente' : 'AUSENTE'}`);
+    console.log(`[WHATSAPP] 📝 Mensagem (${message.length} chars):`);
+    console.log(`[WHATSAPP] 📄 "${message.substring(0, 150)}..."`);
+    console.log(`[WHATSAPP] =====================================`);
 
     // Delay natural para parecer humano
-    await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
+    const delay = 2000 + Math.random() * 3000;
+    console.log(`[WHATSAPP] ⏳ Aguardando ${Math.round(delay/1000)}s para parecer natural...`);
+    await new Promise(resolve => setTimeout(resolve, delay));
 
-    const response = await fetch(`${EVOLUTION_BASE_URL}/message/sendText/${EVOLUTION_INSTANCE_ID}`, {
+    // Construir URL completa
+    const url = `${EVOLUTION_BASE_URL}/message/sendText/${EVOLUTION_INSTANCE_ID}`;
+    console.log(`[WHATSAPP] 🌐 URL Completa: ${url}`);
+
+    // Payload
+    const payload = {
+      number: phone,
+      text: message
+    };
+    
+    console.log(`[WHATSAPP] 📦 Payload:`, JSON.stringify(payload, null, 2));
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'apikey': EVOLUTION_TOKEN
       },
-      body: JSON.stringify({
-        number: phone,
-        text: message
-      })
+      body: JSON.stringify(payload)
     });
 
-    console.log(`[WHATSAPP] 🔄 Status da requisição: ${response.status}`);
+    console.log(`[WHATSAPP] 🔄 Status HTTP: ${response.status} ${response.statusText}`);
+    console.log(`[WHATSAPP] 📋 Headers de resposta:`, Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[WHATSAPP] ❌ Erro HTTP ${response.status}: ${errorText}`);
+      console.error(`[WHATSAPP] ❌ ERRO HTTP ${response.status}:`);
+      console.error(`[WHATSAPP] 📄 Texto do erro: ${errorText}`);
+      
+      // Tentar parsear erro como JSON
+      try {
+        const errorJson = JSON.parse(errorText);
+        console.error(`[WHATSAPP] 📄 Erro JSON:`, errorJson);
+      } catch {
+        console.error(`[WHATSAPP] 📄 Erro não é JSON válido`);
+      }
+      
       return false;
     }
 
     const result = await response.json();
-    console.log(`[WHATSAPP] ✅ SUCESSO TOTAL!`, result);
+    console.log(`[WHATSAPP] 🎉 ===== SUCESSO TOTAL! =====`);
+    console.log(`[WHATSAPP] ✅ Resposta:`, JSON.stringify(result, null, 2));
+    console.log(`[WHATSAPP] 🎉 =========================`);
+    
     return true;
     
   } catch (error) {
-    console.error('[WHATSAPP] ❌ Erro ao enviar:', error);
+    console.error(`[WHATSAPP] ❌ ===== ERRO CRÍTICO =====`);
+    console.error(`[WHATSAPP] 💥 Erro:`, error.message);
+    console.error(`[WHATSAPP] 📚 Stack:`, error.stack);
+    console.error(`[WHATSAPP] ❌ =======================`);
     return false;
   }
 }
