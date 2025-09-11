@@ -157,6 +157,82 @@ exports.handler = async (event, context) => {
 
     console.log(`[CHAT] ✅ Informações completas: ${hasAllInfo}`);
 
+    // 🔥 DETECÇÃO ESPECIAL: Se a mensagem anterior foi "Buscando restaurantes..."
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage && lastMessage.role === 'assistant' && 
+        lastMessage.content.includes('Buscando restaurantes')) {
+      
+      console.log(`[CHAT] 🔍 DETECTOU BUSCA! Executando busca de restaurantes...`);
+      
+      // BUSCAR RESTAURANTES AGORA MESMO!
+      const restaurants = await buscarRestaurantesComGemini(session);
+      
+      if (restaurants && restaurants.length > 0) {
+        // Construir mensagem com opções
+        let optionsMessage = "🍕 ENCONTREI! Melhores opções para você:\n\n";
+        restaurants.forEach((rest, index) => {
+          optionsMessage += `${index + 1}. **${rest.name}**\n`;
+          optionsMessage += `   ${rest.specialty} • ${rest.estimatedTime}\n`;
+          optionsMessage += `   💰 ${rest.price}\n\n`;
+        });
+        optionsMessage += "Digite o NÚMERO da sua escolha! 🎯";
+
+        // Salvar restaurantes na sessão
+        session.restaurants = restaurants;
+        session.stage = 'choosing_restaurant';
+        global.sessions.set(sessionId, session);
+
+        console.log(`[CHAT] 🎉 RETORNANDO OPÇÕES DIRETAMENTE!`);
+        
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            message: optionsMessage,
+            sessionId: sessionId
+          })
+        };
+      } else {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            message: "😔 Não encontrei restaurantes na sua região. Tente outro tipo de comida.",
+            sessionId: sessionId
+          })
+        };
+      }
+    }
+
+    // 🔥 DETECÇÃO: Cliente escolheu restaurante (número)
+    if (session.stage === 'choosing_restaurant' && session.restaurants) {
+      const choice = parseInt(message.trim());
+      if (choice >= 1 && choice <= session.restaurants.length) {
+        const selectedRestaurant = session.restaurants[choice - 1];
+        
+        console.log(`[CHAT] 🎯 Cliente escolheu: ${selectedRestaurant.name}`);
+        
+        // Confirmar escolha e fazer pedido
+        session.selectedRestaurant = selectedRestaurant;
+        session.stage = 'making_order';
+        global.sessions.set(sessionId, session);
+
+        // Fazer pedido IMEDIATAMENTE
+        setTimeout(() => {
+          fazerPedidoNoRestaurante(session, selectedRestaurant);
+        }, 2000);
+
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            message: `Perfeito! Fazendo seu pedido no ${selectedRestaurant.name}... 📞`,
+            sessionId: sessionId
+          })
+        };
+      }
+    }
+
     // Gerar resposta da IA
     const result = await model.generateContent(context);
     const response = result.response;
@@ -309,6 +385,59 @@ Responda APENAS JSON puro:
       message: "😔 Erro ao buscar restaurantes. Tente novamente em alguns segundos.",
       timestamp: new Date()
     });
+  }
+}
+
+// BUSCAR RESTAURANTES COM GEMINI - VERSÃO SÍNCRONA
+async function buscarRestaurantesComGemini(session) {
+  try {
+    console.log(`[BUSCA-SYNC] 🔍 BUSCA SÍNCRONA INICIADA...`);
+    
+    const addressParts = session.orderData.address.split(',');
+    const city = addressParts[addressParts.length - 1]?.trim() || 'Rio de Janeiro';
+
+    const searchPrompt = `
+Encontre 3 restaurantes REAIS no ${city}, Brasil que entregam "${session.orderData.food}".
+
+REGRAS CRÍTICAS:
+- Restaurantes DEVEM existir de verdade
+- WhatsApp DEVE ter DDD correto (Rio de Janeiro = 21, São Paulo = 11, etc.)
+- Preços DEVEM ser realistas para 2024
+- Tempo de entrega DEVE ser real
+
+CIDADE: ${city}
+COMIDA: ${session.orderData.food}
+
+Responda APENAS JSON puro:
+[
+  {
+    "name": "Nome Real",
+    "phone": "55DDXXXXXXXXX",
+    "specialty": "Especialidade",
+    "estimatedTime": "25-35 min",
+    "price": "R$ 28-45"
+  }
+]
+`;
+
+    const result = await model.generateContent(searchPrompt);
+    const geminiResponse = result.response.text();
+    
+    console.log(`[BUSCA-SYNC] 📝 Resposta: ${geminiResponse.substring(0, 200)}...`);
+    
+    // Extrair JSON
+    const jsonMatch = geminiResponse.match(/\[\s*{[\s\S]*?}\s*\]/);
+    if (jsonMatch) {
+      const restaurants = JSON.parse(jsonMatch[0]);
+      console.log(`[BUSCA-SYNC] ✅ SUCESSO! ${restaurants.length} restaurantes`);
+      return restaurants;
+    } else {
+      throw new Error('JSON inválido');
+    }
+    
+  } catch (error) {
+    console.log(`[BUSCA-SYNC] ⚠️ Erro: ${error.message}, usando fallback...`);
+    return gerarRestaurantesPremium(session.orderData.food, 'Rio de Janeiro');
   }
 }
 
@@ -497,5 +626,94 @@ async function extractOrderInfo(session, messageHistory, currentMessage) {
       session.orderData.change = changeMatch[1];
       console.log(`[EXTRACT] 💵 Troco: R$ ${session.orderData.change}`);
     }
+  }
+}
+
+// FAZER PEDIDO NO RESTAURANTE
+async function fazerPedidoNoRestaurante(session, restaurant) {
+  try {
+    console.log(`[PEDIDO] 📞 Fazendo pedido no ${restaurant.name}...`);
+
+    // Criar mensagem humanizada para o restaurante
+    const orderPrompt = `
+Crie uma mensagem de pedido para um restaurante via WhatsApp. A mensagem deve ser:
+
+- Natural e educada
+- Como se fosse um cliente real fazendo pedido
+- Com todas as informações necessárias
+- Formatada de forma clara
+
+DADOS DO PEDIDO:
+- Comida: ${session.orderData.food}
+- Endereço: ${session.orderData.address}
+- Telefone: ${session.orderData.phone}
+- Pagamento: ${session.orderData.paymentMethod} ${session.orderData.change ? `- Troco para: R$ ${session.orderData.change}` : ''}
+
+RESTAURANTE: ${restaurant.name}
+
+Crie uma mensagem natural e profissional.
+`;
+
+    // Gerar mensagem com IA
+    const result = await model.generateContent(orderPrompt);
+    const orderMessage = result.response.text().trim();
+
+    console.log(`[PEDIDO] 📝 Mensagem gerada: ${orderMessage}`);
+
+    // Enviar mensagem para o restaurante
+    const whatsappSuccess = await enviarWhatsApp(restaurant.phone, orderMessage);
+
+    if (whatsappSuccess) {
+      console.log(`[PEDIDO] ✅ Pedido enviado para ${restaurant.name}`);
+      
+      // Notificar cliente
+      global.pendingMessages.set(session.id, {
+        message: `🎉 Pedido enviado para ${restaurant.name}! Eles vão confirmar em breve. Tempo estimado: ${restaurant.estimatedTime}`,
+        timestamp: new Date()
+      });
+    } else {
+      console.log(`[PEDIDO] ❌ Erro ao enviar WhatsApp`);
+      
+      // Notificar cliente sobre erro
+      global.pendingMessages.set(session.id, {
+        message: `😔 Erro ao contatar ${restaurant.name}. Tente outro restaurante ou aguarde alguns minutos.`,
+        timestamp: new Date()
+      });
+    }
+    
+  } catch (error) {
+    console.error('[PEDIDO] ❌ Erro ao fazer pedido:', error);
+  }
+}
+
+// Enviar WhatsApp
+async function enviarWhatsApp(phone, message) {
+  try {
+    console.log(`[WHATSAPP] 📱 Enviando para: ${phone}`);
+
+    const response = await fetch(`${EVOLUTION_BASE_URL}/message/sendText/${EVOLUTION_INSTANCE_ID}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': EVOLUTION_TOKEN
+      },
+      body: JSON.stringify({
+        number: phone,
+        text: message
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[WHATSAPP] ❌ Erro HTTP ${response.status}: ${errorText}`);
+      return false;
+    }
+
+    const result = await response.json();
+    console.log(`[WHATSAPP] ✅ Sucesso:`, result);
+    return true;
+  } catch (error) {
+    console.error('[WHATSAPP] ❌ Erro ao enviar:', error);
+    return false;
   }
 }
