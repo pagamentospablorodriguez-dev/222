@@ -40,6 +40,7 @@ export const useChat = () => {
       localStorage.setItem(`ia-fome-messages-${sessionId}`, JSON.stringify(messages));
     }
   }, [messages, sessionId]);
+  
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
@@ -50,9 +51,6 @@ export const useChat = () => {
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim()) return;
-
-    // Se é a primeira mensagem e não há mensagens ainda, processar imediatamente
-    const isFirstMessage = messages.length === 0;
 
     const userMessage: Message = {
       id: uuidv4(),
@@ -88,11 +86,6 @@ export const useChat = () => {
         };
 
         setMessages(prev => [...prev, assistantMessage]);
-        
-        // Se é a primeira mensagem, garantir que a IA responda
-        if (isFirstMessage) {
-          console.log('Primeira mensagem processada com sucesso');
-        }
       } else {
         throw new Error(response.error || 'Erro ao enviar mensagem');
       }
@@ -131,6 +124,7 @@ export const useChat = () => {
     localStorage.removeItem('ia-fome-session-id');
     setMessages([]);
   }, [sessionId]);
+  
   return {
     messages,
     isLoading,
