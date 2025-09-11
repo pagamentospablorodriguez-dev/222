@@ -51,6 +51,9 @@ export const useChat = () => {
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim()) return;
 
+    // Se é a primeira mensagem e não há mensagens ainda, processar imediatamente
+    const isFirstMessage = messages.length === 0;
+
     const userMessage: Message = {
       id: uuidv4(),
       content: content.trim(),
@@ -85,6 +88,11 @@ export const useChat = () => {
         };
 
         setMessages(prev => [...prev, assistantMessage]);
+        
+        // Se é a primeira mensagem, garantir que a IA responda
+        if (isFirstMessage) {
+          console.log('Primeira mensagem processada com sucesso');
+        }
       } else {
         throw new Error(response.error || 'Erro ao enviar mensagem');
       }

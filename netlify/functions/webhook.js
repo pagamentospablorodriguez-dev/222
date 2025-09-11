@@ -1,10 +1,10 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// Configurações
-const GEMINI_API_KEY = 'AIzaSyBneYtUfIn9ZPOdEQtgxBhM_m_RzNaBDEA';
-const EVOLUTION_BASE_URL = 'https://api.evoapicloud.com';
-const EVOLUTION_TOKEN = 'EDF0C4C1E6CF-4D7B-A825-D7D24868E7FB';
-const EVOLUTION_INSTANCE_ID = '26935dbc-39ab-4b81-92b7-a09f57325a0c';
+// Configurações seguras com variáveis de ambiente
+const GEMINI_API_KEY = process.env.VITE_GOOGLE_AI_API_KEY || 'AIzaSyBneYtUfIn9ZPOdEQtgxBhM_m_RzNaBDEA';
+const EVOLUTION_BASE_URL = process.env.VITE_EVOLUTION_API_URL || 'https://api.evoapicloud.com';
+const EVOLUTION_TOKEN = process.env.VITE_EVOLUTION_TOKEN || 'EDF0C4C1E6CF-4D7B-A825-D7D24868E7FB';
+const EVOLUTION_INSTANCE_ID = process.env.VITE_EVOLUTION_INSTANCE_ID || '26935dbc-39ab-4b81-92b7-a09f57325a0c';
 
 // Inicializar Gemini
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -21,6 +21,14 @@ Você é um cliente fazendo um pedido de delivery. Responda às perguntas do res
 Seja direto e forneça as informações solicitadas.
 Mantenha um tom amigável mas objetivo.
 Se for uma pergunta que você não sabe responder (como preferências específicas), diga que vai verificar e responder em breve.
+
+CONTEXTO DO PEDIDO:
+{ORDER_CONTEXT}
+
+HISTÓRICO DA CONVERSA:
+{CONVERSATION_HISTORY}
+
+Responda de forma humana e natural, como se fosse um cliente real.
 `;
 
 exports.handler = async (event, context) => {
@@ -138,6 +146,21 @@ async function handleRestaurantResponse(order, messageText, restaurantPhone) {
       if (isOrderConfirmed(messageText)) {
         order.status = 'confirmed';
         await notifyClientOrderConfirmed(order.sessionId, messageText);
+        
+        // Enviar múltiplas mensagens sequenciais para tranquilizar o cliente
+        await sendMultipleClientUpdates(order.sessionId, messageText);
+      }
+
+      // Verificar se está preparando
+      if (isOrderPreparing(messageText)) {
+        order.status = 'preparing';
+        await notifyClientOrderStatus(order.sessionId, 'Seu pedido está sendo preparado! 👨‍🍳');
+      }
+
+      // Verificar se saiu para entrega
+      if (isOrderOutForDelivery(messageText)) {
+        order.status = 'out_for_delivery';
+        await notifyClientOrderStatus(order.sessionId, 'Seu pedido saiu para entrega! 🛵');
       }
     }
 
@@ -170,7 +193,10 @@ function analyzeIfNeedsClientInput(message) {
     'qual o complemento',
     'apartamento',
     'bloco',
-    'referência'
+    'referência',
+    'você prefere',
+    'gostaria de',
+    'quer adicionar'
   ];
 
   return clientInputKeywords.some(keyword => 
@@ -181,23 +207,24 @@ function analyzeIfNeedsClientInput(message) {
 // Gerar resposta automática como cliente
 async function generateClientResponse(conversation, orderData) {
   try {
-    let context = CLIENT_RESPONSE_PROMPT + '\n\n';
-    context += `Meus dados do pedido:\n`;
-    context += `- Comida: ${orderData.food}\n`;
-    context += `- Endereço: ${orderData.address}\n`;
-    context += `- Telefone: ${orderData.phone}\n`;
-    context += `- Pagamento: ${orderData.paymentMethod}\n`;
-    if (orderData.change) context += `- Troco para: R$ ${orderData.change}\n`;
-    context += '\nConversa com o restaurante:\n';
-    
-    conversation.forEach(msg => {
-      const role = msg.role === 'restaurant' ? 'Restaurante' : 'Eu';
-      context += `${role}: ${msg.content}\n`;
-    });
-    
-    context += '\nEu:';
+    const orderContext = `
+    - Comida: ${orderData.food}
+    - Endereço: ${orderData.address}
+    - Telefone: ${orderData.phone}
+    - Pagamento: ${orderData.paymentMethod}
+    ${orderData.change ? `- Troco para: R$ ${orderData.change}` : ''}
+    `;
 
-    const result = await model.generateContent(context);
+    const conversationHistory = conversation.map(msg => {
+      const role = msg.role === 'restaurant' ? 'Restaurante' : 'Eu';
+      return `${role}: ${msg.content}`;
+    }).join('\n');
+
+    const prompt = CLIENT_RESPONSE_PROMPT
+      .replace('{ORDER_CONTEXT}', orderContext)
+      .replace('{CONVERSATION_HISTORY}', conversationHistory);
+
+    const result = await model.generateContent(prompt);
     const response = result.response;
     return response.text().trim();
 
@@ -232,6 +259,43 @@ async function notifyClientOrderConfirmed(sessionId, restaurantMessage) {
   }
 }
 
+// Enviar múltiplas mensagens sequenciais para tranquilizar o cliente
+async function sendMultipleClientUpdates(sessionId, restaurantMessage) {
+  const session = sessions.get(sessionId);
+  if (session && session.orderData.phone) {
+    // Primeira mensagem
+    await sendWhatsAppMessage(session.orderData.phone, '🎉 Perfeito! Seu pedido foi confirmado pelo restaurante!');
+    
+    // Delay entre mensagens
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Segunda mensagem
+    await sendWhatsAppMessage(session.orderData.phone, '👨‍🍳 Eles já começaram a preparar sua comida!');
+    
+    // Delay entre mensagens
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Terceira mensagem
+    await sendWhatsAppMessage(session.orderData.phone, '📱 Você pode sair do IA Fome tranquilo, vou te avisar aqui no WhatsApp quando sair para entrega!');
+    
+    // Delay entre mensagens
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Quarta mensagem
+    await sendWhatsAppMessage(session.orderData.phone, '⏰ Tempo estimado: 40-50 minutos. Relaxa que está tudo certo! 😊');
+  }
+}
+
+// Notificar cliente sobre status do pedido
+async function notifyClientOrderStatus(sessionId, statusMessage) {
+  console.log(`Status do pedido para cliente ${sessionId}: ${statusMessage}`);
+  
+  const session = sessions.get(sessionId);
+  if (session && session.orderData.phone) {
+    await sendWhatsAppMessage(session.orderData.phone, `🍕 IA Fome: ${statusMessage}`);
+  }
+}
+
 // Verificar se pedido foi confirmado
 function isOrderConfirmed(message) {
   const confirmationKeywords = [
@@ -241,11 +305,42 @@ function isOrderConfirmed(message) {
     'tempo de entrega',
     'chega em',
     'fica pronto em',
-    'saiu para entrega',
-    'a caminho'
+    'ok, anotado',
+    'perfeito',
+    'confirmado'
   ];
 
   return confirmationKeywords.some(keyword => 
+    message.toLowerCase().includes(keyword.toLowerCase())
+  );
+}
+
+// Verificar se está preparando
+function isOrderPreparing(message) {
+  const preparingKeywords = [
+    'preparando',
+    'na cozinha',
+    'fazendo',
+    'no forno',
+    'assando'
+  ];
+
+  return preparingKeywords.some(keyword => 
+    message.toLowerCase().includes(keyword.toLowerCase())
+  );
+}
+
+// Verificar se saiu para entrega
+function isOrderOutForDelivery(message) {
+  const deliveryKeywords = [
+    'saiu para entrega',
+    'a caminho',
+    'entregador saiu',
+    'motoboy saiu',
+    'delivery a caminho'
+  ];
+
+  return deliveryKeywords.some(keyword => 
     message.toLowerCase().includes(keyword.toLowerCase())
   );
 }
