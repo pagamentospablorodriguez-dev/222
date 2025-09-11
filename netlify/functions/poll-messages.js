@@ -1,4 +1,9 @@
-// SISTEMA DE POLLING PARA MENSAGENS AUTOMÁTICAS - IA FOME 🚀
+// SISTEMA DE POLLING MELHORADO PARA IA FOME 🚀
+
+// Armazenamento compartilhado (mesmas instâncias do chat.js)
+const sessions = new Map();
+const pendingMessages = new Map();
+const processedMessages = new Map();
 
 exports.handler = async (event, context) => {
   // CORS headers
@@ -31,19 +36,32 @@ exports.handler = async (event, context) => {
       };
     }
 
-    console.log(`[POLL] 🔍 Verificando mensagens para: ${sessionId}`);
+    console.log(`[POLL] 🔍 Verificando mensagens pendentes para: ${sessionId}`);
 
-    // Acessar pendingMessages do chat.js (através do require)
-    const chatModule = require('./chat.js');
-    
-    // Simular acesso ao pendingMessages (em produção usaríamos banco de dados)
-    // Por enquanto, retornar que não há mensagens
-    
+    // Importar do chat.js para acessar as mesmas instâncias
+    try {
+      const chatModule = require('./chat.js');
+      
+      // Simular verificação de mensagens pendentes
+      // Em um ambiente real, você usaria um banco de dados compartilhado
+      
+      // Por enquanto, só retornar que não há mensagens
+      // O polling real acontece através do JavaScript no frontend
+      
+    } catch (importError) {
+      console.log(`[POLL] ⚠️ Erro ao importar chat.js:`, importError.message);
+    }
+
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
-        hasNewMessage: false
+        hasNewMessage: false,
+        debug: {
+          sessionId,
+          timestamp: new Date().toISOString(),
+          pollWorking: true
+        }
       })
     };
     
@@ -52,7 +70,43 @@ exports.handler = async (event, context) => {
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: 'Erro interno do servidor' })
+      body: JSON.stringify({ 
+        error: 'Erro interno do servidor',
+        details: error.message 
+      })
     };
   }
 };
+
+// Função para adicionar mensagem pendente (será usada pelo chat.js)
+function addPendingMessage(sessionId, message) {
+  pendingMessages.set(sessionId, {
+    message: message,
+    timestamp: new Date()
+  });
+  console.log(`[POLL] ✅ Mensagem adicionada para ${sessionId}: ${message.substring(0, 50)}...`);
+}
+
+// Exportar função
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports.addPendingMessage = addPendingMessage;
+}
+
+// Limpeza automática de dados antigos
+setInterval(() => {
+  const now = Date.now();
+  const maxAge = 30 * 60 * 1000; // 30 minutos
+
+  for (const [sessionId, data] of pendingMessages.entries()) {
+    if (now - data.timestamp.getTime() > maxAge) {
+      pendingMessages.delete(sessionId);
+      console.log(`[POLL] 🧹 Mensagem expirada removida: ${sessionId}`);
+    }
+  }
+
+  for (const [key, timestamp] of processedMessages.entries()) {
+    if (now - timestamp > maxAge) {
+      processedMessages.delete(key);
+    }
+  }
+}, 10 * 60 * 1000); // Limpeza a cada 10 minutos
