@@ -1,7 +1,7 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Configurações
-const GEMINI_API_KEY = 'AIzaSyCiFWTVnWzv3B4pbIVijHeRuy1sof1vikg';
+const GEMINI_API_KEY = 'AIzaSyBneYtUfIn9ZPOdEQtgxBhM_m_RzNaBDEA';
 const EVOLUTION_BASE_URL = 'https://api.evoapicloud.com';
 const EVOLUTION_TOKEN = 'EDF0C4C1E6CF-4D7B-A825-D7D24868E7FB';
 const EVOLUTION_INSTANCE_ID = '26935dbc-39ab-4b81-92b7-a09f57325a0c';
