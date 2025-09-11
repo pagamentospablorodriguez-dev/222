@@ -18,14 +18,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
     e.preventDefault();
     if (!inputValue.trim() || isLoading) return;
 
+    const messageToSend = inputValue;
+    setInputValue('');
+
+    // Se é primeira mensagem, transicionar para chat
     if (isInitialState) {
       onFirstMessage();
     }
 
-    const messageToSend = inputValue;
-    setInputValue('');
-    
-    // ENVIAR IMEDIATAMENTE para processar a primeira mensagem
+    // SEMPRE processar a mensagem imediatamente
     await sendMessage(messageToSend);
   };
 
@@ -43,8 +44,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
       <div className={`flex max-w-[85%] sm:max-w-[75%] ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
         <div
           className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center relative ${
-            message.role === 'user' 
-              ? 'bg-gradient-to-br from-primary-500 to-primary-600 ml-3 shadow-lg shadow-primary-200 dark:shadow-primary-900/50' 
+            message.role === 'user'
+              ? 'bg-gradient-to-br from-primary-500 to-primary-600 ml-3 shadow-lg shadow-primary-200 dark:shadow-primary-900/50'
               : 'bg-gradient-to-br from-accent-500 to-accent-600 mr-3 shadow-lg shadow-accent-200 dark:shadow-accent-900/50 animate-glow'
           }`}
         >
@@ -152,7 +153,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
                 </motion.div>
               </div>
             </motion.div>
-            
+
             <motion.h1 
               className="text-4xl sm:text-6xl lg:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-primary-600 via-accent-500 to-secondary-500 dark:from-primary-400 dark:via-accent-400 dark:to-secondary-400 mb-4"
               animate={{ 
@@ -316,7 +317,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
             <MessageBubble key={`${message.id}-${index}`} message={message} index={index} />
           ))}
         </AnimatePresence>
-        
+
         {isLoading && (
           <div className="flex justify-start mb-6">
             <div className="flex max-w-[85%] sm:max-w-[75%]">
@@ -403,7 +404,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
         <div className="absolute bottom-2 right-2 text-xs text-gray-400 dark:text-gray-600 opacity-50">
           C🔱
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 };
