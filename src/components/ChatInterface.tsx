@@ -24,6 +24,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
 
     const messageToSend = inputValue;
     setInputValue('');
+    
+    // ENVIAR IMEDIATAMENTE para processar a primeira mensagem
     await sendMessage(messageToSend);
   };
 
@@ -35,17 +37,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
   };
 
   const MessageBubble: React.FC<{ message: Message; index: number }> = ({ message, index }) => (
-    <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1], delay: index * 0.1 }}
+    <div
       className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-6`}
     >
       <div className={`flex max-w-[85%] sm:max-w-[75%] ${message.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-        <motion.div
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ delay: index * 0.1 + 0.1, type: 'spring', stiffness: 400, damping: 25 }}
+        <div
           className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center relative ${
             message.role === 'user' 
               ? 'bg-gradient-to-br from-primary-500 to-primary-600 ml-3 shadow-lg shadow-primary-200 dark:shadow-primary-900/50' 
@@ -66,13 +62,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
               </motion.div>
             </>
           )}
-        </motion.div>
+        </div>
 
         <div className="flex flex-col">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: index * 0.1 + 0.2, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+          <div
             className={`px-6 py-4 rounded-2xl shadow-lg relative backdrop-blur-sm ${
               message.role === 'user'
                 ? 'bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-primary-200 dark:shadow-primary-900/50'
@@ -90,17 +83,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
             <p className="text-sm leading-relaxed whitespace-pre-wrap font-medium">{message.content}</p>
             
             {message.status === 'error' && (
-              <motion.button
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
+              <button
                 onClick={() => retryMessage(message.id)}
                 className="mt-3 flex items-center gap-2 text-xs opacity-75 hover:opacity-100 transition-opacity"
               >
                 <RotateCcw className="w-3 h-3" />
                 Tentar novamente
-              </motion.button>
+              </button>
             )}
-          </motion.div>
+          </div>
           
           <div className={`flex items-center gap-2 mt-2 px-2 ${
             message.role === 'user' ? 'justify-end' : 'justify-start'
@@ -126,7 +117,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 
   if (isInitialState) {
@@ -317,22 +308,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
   }
 
   return (
-    <div className="flex flex-col h-full relative pt-20 pb-40 chat-container">
+    <div className="flex flex-col h-full relative pt-20 pb-40">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 space-y-4 mb-32">
         <AnimatePresence>
           {messages.map((message, index) => (
-            <MessageBubble key={message.id} message={message} index={index} />
+            <MessageBubble key={`${message.id}-${index}`} message={message} index={index} />
           ))}
         </AnimatePresence>
         
         {isLoading && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="flex justify-start mb-6"
-          >
+          <div className="flex justify-start mb-6">
             <div className="flex max-w-[85%] sm:max-w-[75%]">
               <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-accent-500 to-accent-600 rounded-full flex items-center justify-center mr-3 shadow-lg animate-glow relative">
                 <ChefHat className="w-5 h-5 text-white" />
@@ -361,7 +347,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
                 </div>
               </div>
             </div>
-          </motion.div>
+          </div>
         )}
         
         <div ref={messagesEndRef} />
@@ -374,12 +360,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
         className="fixed bottom-0 left-0 right-0 p-4 sm:p-6 bg-white/98 dark:bg-dark-900/98 backdrop-blur-xl border-t border-gray-200/50 dark:border-dark-700/50 z-50 shadow-2xl"
       >
-        {/* Adicionar padding bottom ao container principal */}
-        <style jsx>{`
-          .chat-container {
-            padding-bottom: 120px !important;
-          }
-        `}</style>
         <form onSubmit={handleSubmit} className="relative max-w-4xl mx-auto">
           <div className="flex items-end gap-3 sm:gap-4">
             <div className="flex-1 relative">
@@ -423,7 +403,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
         <div className="absolute bottom-2 right-2 text-xs text-gray-400 dark:text-gray-600 opacity-50">
           C🔱
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 };
