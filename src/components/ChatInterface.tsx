@@ -404,7 +404,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
         <div className="absolute bottom-2 right-2 text-xs text-gray-400 dark:text-gray-600 opacity-50">
           C🔱
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 };
