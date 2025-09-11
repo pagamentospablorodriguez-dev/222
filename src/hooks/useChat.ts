@@ -41,11 +41,84 @@ export const useChat = () => {
     }
   }, [messages, sessionId]);
 
+  // SISTEMA DE POLLING MELHORADO para mensagens automáticas
+  useEffect(() => {
+    let pollInterval: NodeJS.Timeout;
+
+    const startPolling = () => {
+      pollInterval = setInterval(async () => {
+        try {
+          const response = await fetch('/.netlify/functions/poll-messages', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-cache'
+            },
+            body: JSON.stringify({ sessionId })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            
+            if (data.hasNewMessage && data.message) {
+              console.log('🚀 Nova mensagem automática recebida:', data.message.substring(0, 50));
+              
+              // Criar nova mensagem da IA
+              const newMessage: Message = {
+                id: uuidv4(),
+                content: data.message,
+                role: 'assistant',
+                timestamp: new Date(data.timestamp),
+                status: 'sent'
+              };
+              
+              // Adicionar mensagem ao estado
+              setMessages(prev => {
+                // Verificar se já existe mensagem com o mesmo conteúdo
+                const exists = prev.some(msg => 
+                  msg.content === newMessage.content && 
+                  msg.role === 'assistant'
+                );
+                
+                if (exists) {
+                  console.log('Mensagem duplicada ignorada');
+                  return prev;
+                }
+                
+                console.log('✅ Nova mensagem adicionada ao chat');
+                return [...prev, newMessage];
+              });
+            }
+          }
+        } catch (error) {
+          console.error('❌ Erro no polling:', error);
+        }
+      }, 1500); // Polling mais frequente (1.5s)
+    };
+
+    // Iniciar polling após primeira mensagem
+    if (messages.length > 0) {
+      startPolling();
+    }
+
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [sessionId, messages.length]);
+
   // Listener para novas mensagens da IA
   useEffect(() => {
     const handleNewAIMessage = (event: CustomEvent) => {
       const newMessage = event.detail;
-      setMessages(prev => [...prev, newMessage]);
+      setMessages(prev => {
+        // Evitar mensagens duplicadas
+        const exists = prev.some(msg => msg.id === newMessage.id);
+        if (exists) return prev;
+        
+        return [...prev, newMessage];
+      });
     };
 
     window.addEventListener('newAIMessage', handleNewAIMessage as EventListener);
@@ -57,7 +130,11 @@ export const useChat = () => {
   }, []);
 
   useEffect(() => {
-    scrollToBottom();
+    const timer = setTimeout(() => {
+      scrollToBottom();
+    }, 100);
+
+    return () => clearTimeout(timer);
   }, [messages, scrollToBottom]);
 
   const sendMessage = useCallback(async (content: string) => {
@@ -75,12 +152,14 @@ export const useChat = () => {
     setIsLoading(true);
 
     try {
-      // Mark user message as sent IMEDIATAMENTE
+      console.log('📤 Enviando mensagem:', content.substring(0, 50));
+
+      // Marcar mensagem do usuário como enviada IMEDIATAMENTE
       setMessages(prev => prev.map(msg =>
         msg.id === userMessage.id ? { ...msg, status: 'sent' } : msg
       ));
 
-      // Send to backend com retry automático
+      // Enviar para o backend com retry
       let attempts = 0;
       let response;
       
@@ -89,7 +168,7 @@ export const useChat = () => {
           response = await chatService.sendMessage({
             sessionId,
             message: content.trim(),
-            messages: messages
+            messages: messages.filter(msg => msg.status !== 'sending')
           });
           
           if (response.success) {
@@ -98,11 +177,13 @@ export const useChat = () => {
           
           attempts++;
           if (attempts < 3) {
+            console.log(`🔄 Tentativa ${attempts + 1}/3 em 1s...`);
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
         } catch (error) {
           attempts++;
           if (attempts < 3) {
+            console.log(`🔄 Erro na tentativa ${attempts}, tentando novamente...`);
             await new Promise(resolve => setTimeout(resolve, 1000));
           } else {
             throw error;
@@ -111,6 +192,8 @@ export const useChat = () => {
       }
 
       if (response?.success && response.data) {
+        console.log('✅ Resposta recebida:', response.data.message.substring(0, 50));
+        
         const assistantMessage: Message = {
           id: uuidv4(),
           content: response.data.message,
@@ -124,17 +207,17 @@ export const useChat = () => {
         throw new Error(response?.error || 'Erro ao enviar mensagem');
       }
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('❌ Erro ao enviar mensagem:', error);
 
-      // Mark user message as error
+      // Marcar mensagem do usuário como erro
       setMessages(prev => prev.map(msg =>
         msg.id === userMessage.id ? { ...msg, status: 'error' } : msg
       ));
 
-      // Add error message
+      // Adicionar mensagem de erro
       const errorMessage: Message = {
         id: uuidv4(),
-        content: 'Desculpe, houve um erro ao processar sua mensagem. Tente novamente.',
+        content: 'Desculpe, houve um erro. Tente novamente em alguns segundos.',
         role: 'assistant',
         timestamp: new Date(),
         status: 'sent'
@@ -149,6 +232,9 @@ export const useChat = () => {
   const retryMessage = useCallback((messageId: string) => {
     const message = messages.find(msg => msg.id === messageId);
     if (message && message.role === 'user') {
+      // Remover mensagem com erro
+      setMessages(prev => prev.filter(msg => msg.id !== messageId));
+      // Reenviar
       sendMessage(message.content);
     }
   }, [messages, sendMessage]);
