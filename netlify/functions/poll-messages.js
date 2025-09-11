@@ -1,4 +1,4 @@
-// SISTEMA DE POLLING REAL FUNCIONANDO - IA FOME 🚀
+// POLLING SIMPLIFICADO - NÃO PRECISA MAIS SER COMPLEXO
 
 exports.handler = async (event, context) => {
   const headers = {
@@ -11,52 +11,27 @@ exports.handler = async (event, context) => {
     return { statusCode: 200, headers };
   }
 
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: 'Method not allowed' })
-    };
-  }
-
   try {
     const { sessionId } = JSON.parse(event.body);
 
-    if (!sessionId) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'SessionId é obrigatório' })
-      };
-    }
-
-    console.log(`[POLL-REAL] 🔍 Verificando mensagens para: ${sessionId}`);
-
-    // Simular acesso ao sistema de mensagens pendentes
-    // Em produção, usaria banco de dados compartilhado
-    
-    // Por enquanto, retorna que não há mensagens
-    // O polling real acontece via setTimeout no frontend
+    // Como agora fazemos tudo síncrono na mesma request,
+    // não precisamos de polling complexo
     
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
         hasNewMessage: false,
-        timestamp: new Date().toISOString(),
-        sessionId: sessionId
+        message: 'Sistema funcionando sincronamente agora!',
+        timestamp: new Date().toISOString()
       })
     };
     
   } catch (error) {
-    console.error('[POLL-REAL] ❌ Erro no polling:', error);
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ 
-        error: 'Erro interno do servidor',
-        details: error.message 
-      })
+      body: JSON.stringify({ error: 'Erro no polling' })
     };
   }
 };
