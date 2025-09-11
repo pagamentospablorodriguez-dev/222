@@ -17,34 +17,112 @@ interface SendMessageResponse {
 class ChatService {
   private api = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 30000,
+    timeout: 45000, // Aumentar timeout para 45s
     headers: {
       'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache'
     },
   });
 
+  constructor() {
+    // Interceptor para logs detalhados
+    this.api.interceptors.request.use(
+      (config) => {
+        console.log('📡 Enviando requisição:', config.method?.toUpperCase(), config.url);
+        return config;
+      },
+      (error) => {
+        console.error('❌ Erro na requisição:', error);
+        return Promise.reject(error);
+      }
+    );
+
+    this.api.interceptors.response.use(
+      (response) => {
+        console.log('✅ Resposta recebida:', response.status, response.config.url);
+        return response;
+      },
+      (error) => {
+        console.error('❌ Erro na resposta:', error.response?.status, error.message);
+        return Promise.reject(error);
+      }
+    );
+  }
+
   async sendMessage(request: SendMessageRequest): Promise<ApiResponse<SendMessageResponse>> {
     try {
-      const response = await this.api.post('/chat', request);
+      console.log('🚀 Enviando mensagem para chat service...');
+      console.log('📊 Dados:', {
+        sessionId: request.sessionId,
+        message: request.message.substring(0, 50) + '...',
+        messagesCount: request.messages.length
+      });
+
+      const response = await this.api.post('/chat', {
+        sessionId: request.sessionId,
+        message: request.message,
+        messages: request.messages.map(msg => ({
+          id: msg.id,
+          content: msg.content,
+          role: msg.role,
+          timestamp: msg.timestamp.toISOString()
+        }))
+      });
+
+      console.log('✅ Resposta do servidor:', response.data);
+
       return {
         success: true,
         data: response.data
       };
     } catch (error: any) {
-      console.error('Chat service error:', error);
+      console.error('❌ Erro no chat service:', error);
+      
+      let errorMessage = 'Erro na comunicação com o servidor';
+      
+      if (error.code === 'ECONNABORTED') {
+        errorMessage = 'Tempo limite excedido. Tente novamente.';
+      } else if (error.response?.status === 429) {
+        errorMessage = 'Muitas requisições. Aguarde um momento.';
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Servidor temporariamente indisponível.';
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      }
+
       return {
         success: false,
-        error: error.response?.data?.error || error.message || 'Erro na comunicação com o servidor'
+        error: errorMessage
       };
     }
   }
 
   async healthCheck(): Promise<boolean> {
     try {
-      await this.api.get('/health');
-      return true;
+      const response = await this.api.get('/health');
+      return response.status === 200;
     } catch {
       return false;
+    }
+  }
+
+  // Método para testar conectividade
+  async testConnection(): Promise<{ success: boolean; latency?: number; error?: string }> {
+    const startTime = Date.now();
+    
+    try {
+      await this.healthCheck();
+      const latency = Date.now() - startTime;
+      
+      return {
+        success: true,
+        latency
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 }
