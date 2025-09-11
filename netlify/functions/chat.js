@@ -10,10 +10,10 @@ const EVOLUTION_INSTANCE_ID = process.env.VITE_EVOLUTION_INSTANCE_ID;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-// Armazenamento em memória (em produção, usar banco de dados)
-const sessions = new Map();
-const orders = new Map();
-const pendingMessages = new Map(); // Para mensagens automáticas
+// Armazenamento GLOBAL - COMPARTILHADO ENTRE TODAS AS REQUESTS
+global.sessions = global.sessions || new Map();
+global.pendingMessages = global.pendingMessages || new Map();
+global.orders = global.orders || new Map();
 
 // PROMPT PREMIUM OTIMIZADO - O MELHOR DO MUNDO! 🚀
 const SYSTEM_PROMPT = `
@@ -101,10 +101,10 @@ exports.handler = async (event, context) => {
       };
     }
 
-    console.log(`[CHAT] Sessão: ${sessionId}, Mensagem: ${message}`);
+    console.log(`[CHAT] 🚀 PROCESSANDO: ${sessionId} - ${message}`);
 
-    // Obter ou criar sessão
-    let session = sessions.get(sessionId);
+    // Obter ou criar sessão no storage GLOBAL
+    let session = global.sessions.get(sessionId);
     if (!session) {
       session = {
         id: sessionId,
@@ -120,8 +120,8 @@ exports.handler = async (event, context) => {
         created: new Date(),
         lastActive: new Date()
       };
-      sessions.set(sessionId, session);
-      console.log(`[CHAT] Nova sessão criada: ${sessionId}`);
+      global.sessions.set(sessionId, session);
+      console.log(`[CHAT] 📝 Nova sessão criada: ${sessionId}`);
     }
 
     // Atualizar sessão
@@ -146,7 +146,7 @@ exports.handler = async (event, context) => {
     });
     context += `Cliente: ${message}\nIA Fome:`;
 
-    console.log(`[CHAT] Dados atuais:`, session.orderData);
+    console.log(`[CHAT] 📊 Dados atuais:`, session.orderData);
 
     // Verificar se temos todas as informações necessárias
     const hasAllInfo = session.orderData.food && 
@@ -155,14 +155,14 @@ exports.handler = async (event, context) => {
                       session.orderData.paymentMethod &&
                       (session.orderData.paymentMethod !== 'dinheiro' || session.orderData.change);
 
-    console.log(`[CHAT] Tem todas as informações: ${hasAllInfo}`);
+    console.log(`[CHAT] ✅ Informações completas: ${hasAllInfo}`);
 
     // Gerar resposta da IA
     const result = await model.generateContent(context);
     const response = result.response;
     let aiMessage = response.text().trim();
 
-    // Limitar tamanho da mensagem (máximo 120 caracteres)
+    // Limitar tamanho da mensagem
     if (aiMessage.length > 120) {
       const sentences = aiMessage.split(/[.!?]+/);
       aiMessage = sentences[0] + (sentences[0].endsWith('.') || sentences[0].endsWith('!') || sentences[0].endsWith('?') ? '' : '.');
@@ -171,54 +171,18 @@ exports.handler = async (event, context) => {
       }
     }
 
-    console.log(`[CHAT] Resposta gerada: ${aiMessage}`);
+    console.log(`[CHAT] 💬 Resposta gerada: ${aiMessage}`);
 
-    // Se temos todas as informações E a IA disse que vai buscar
+    // 🚀 MOMENTO CRÍTICO: BUSCAR RESTAURANTES IMEDIATAMENTE!
     if (hasAllInfo && session.stage === 'initial' && 
         (aiMessage.includes('buscando') || aiMessage.includes('aguard') || 
          aiMessage.includes('procurand') || aiMessage.includes('encontrando'))) {
       
       session.stage = 'searching_restaurants';
-      console.log(`[CHAT] 🚀 INICIANDO BUSCA IMEDIATA para: ${sessionId}`);
+      console.log(`[CHAT] 🔥 BUSCANDO RESTAURANTES AGORA MESMO!!! SessionId: ${sessionId}`);
       
-      // Buscar restaurantes IMEDIATAMENTE - SEM DELAY
-      searchRestaurantsWithGemini(session)
-        .then(restaurants => {
-          if (restaurants && restaurants.length > 0) {
-            // Construir mensagem com opções PERFEITA
-            let optionsMessage = "🍕 ENCONTREI! Melhores opções para você:\n\n";
-            restaurants.forEach((rest, index) => {
-              optionsMessage += `${index + 1}. ${rest.name}\n`;
-              optionsMessage += `   ${rest.specialty} • ${rest.estimatedTime}\n`;
-              optionsMessage += `   💰 ${rest.price}\n\n`;
-            });
-            optionsMessage += "Digite o NÚMERO da sua escolha! 🎯";
-
-            // Armazenar mensagem para polling IMEDIATAMENTE
-            pendingMessages.set(sessionId, {
-              message: optionsMessage,
-              timestamp: new Date(),
-              restaurants: restaurants
-            });
-
-            console.log(`[BUSCA] ✅ Opções ENVIADAS para ${sessionId}:`, restaurants.length);
-          } else {
-            // Se não encontrou, avisar o cliente
-            pendingMessages.set(sessionId, {
-              message: "😔 Não encontrei restaurantes na sua região. Tente outro tipo de comida ou endereço.",
-              timestamp: new Date()
-            });
-            console.error(`[BUSCA] ❌ Nenhum restaurante encontrado para ${sessionId}`);
-          }
-        })
-        .catch(error => {
-          console.error('[BUSCA] ❌ Erro na busca:', error);
-          // Avisar o cliente sobre o erro
-          pendingMessages.set(sessionId, {
-            message: "😔 Erro ao buscar restaurantes. Tente novamente em alguns segundos.",
-            timestamp: new Date()
-          });
-        });
+      // EXECUTAR BUSCA IMEDIATAMENTE - NÃO AGUARDAR!
+      buscarRestaurantesImediatamente(session);
     }
 
     return {
@@ -230,7 +194,7 @@ exports.handler = async (event, context) => {
       })
     };
   } catch (error) {
-    console.error('❌ Erro no chat:', error);
+    console.error('❌ ERRO CRÍTICO NO CHAT:', error);
     return {
       statusCode: 500,
       headers,
@@ -239,191 +203,95 @@ exports.handler = async (event, context) => {
   }
 };
 
-// Função MELHORADA para extrair informações
-async function extractOrderInfo(session, messageHistory, currentMessage) {
-  console.log(`[EXTRACT] 🔍 Analisando: ${currentMessage}`);
-
-  const lowerMessage = messageHistory.toLowerCase();
-  const currentLower = currentMessage.toLowerCase();
-
-  // Detectar COMIDA com mais precisão
-  if (!session.orderData.food) {
-    const foodPatterns = [
-      /pizza\s+(pequena|média|grande|família|gigante)/i,
-      /pizza\s+(margherita|calabresa|portuguesa|quatro\s+queijos|frango|pepperoni)/i,
-      /(hambur|burger)\s+(clássico|cheese|bacon|frango|duplo)/i,
-      /(sushi|japonês)\s+(tradicional|salmão|combinado|temaki)/i,
-      /yakisoba\s+(frango|carne|camarão|misto)/i,
-      /(combo|lanche)\s+(do\s+dia|especial|completo)/i
-    ];
-
-    for (const pattern of foodPatterns) {
-      if (pattern.test(currentMessage)) {
-        session.orderData.food = currentMessage;
-        console.log(`[EXTRACT] 🍕 Comida detectada: ${currentMessage}`);
-        break;
-      }
-    }
-
-    // Se não achou padrão específico, verificar palavras-chave gerais
-    if (!session.orderData.food) {
-      const keywords = ['pizza', 'hambur', 'sushi', 'yakisoba', 'lanche', 'combo'];
-      if (keywords.some(kw => currentLower.includes(kw))) {
-        session.orderData.food = currentMessage;
-        console.log(`[EXTRACT] 🍕 Comida genérica detectada: ${currentMessage}`);
-      }
-    }
-  }
-
-  // Detectar ENDEREÇO com mais precisão
-  if (!session.orderData.address) {
-    const addressPatterns = [
-      /(?:rua|r\.)\s+[^\d,]+,?\s*\d+/i,
-      /(?:avenida|av\.)\s+[^\d,]+,?\s*\d+/i,
-      /[^\d,]+,\s*\d+[\s,]*[^\d]*(?:,\s*\w+)?/i,
-      /\d+.*(?:copacabana|ipanema|botafogo|flamengo|centro|tijuca|barra)/i
-    ];
-
-    for (const pattern of addressPatterns) {
-      if (pattern.test(currentMessage)) {
-        session.orderData.address = currentMessage;
-        console.log(`[EXTRACT] 📍 Endereço detectado: ${currentMessage}`);
-        break;
-      }
-    }
-  }
-
-  // Detectar TELEFONE
-  if (!session.orderData.phone) {
-    const phoneMatch = currentMessage.match(/(?:\+55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\s*)?[\d\s-]{8,11}/);
-    if (phoneMatch) {
-      session.orderData.phone = phoneMatch[0].replace(/\D/g, '');
-      console.log(`[EXTRACT] 📱 Telefone detectado: ${session.orderData.phone}`);
-    }
-  }
-
-  // Detectar PAGAMENTO
-  if (!session.orderData.paymentMethod) {
-    if (currentLower.includes('dinheiro') || currentLower.includes('espécie')) {
-      session.orderData.paymentMethod = 'dinheiro';
-      console.log(`[EXTRACT] 💰 Pagamento: dinheiro`);
-    } else if (currentLower.includes('cartão') || currentLower.includes('cartao')) {
-      session.orderData.paymentMethod = 'cartão';
-      console.log(`[EXTRACT] 💳 Pagamento: cartão`);
-    } else if (currentLower.includes('pix')) {
-      session.orderData.paymentMethod = 'pix';
-      console.log(`[EXTRACT] 💰 Pagamento: pix`);
-    }
-  }
-
-  // Detectar TROCO
-  if (session.orderData.paymentMethod === 'dinheiro' && !session.orderData.change) {
-    const changeMatch = currentMessage.match(/(?:troco\s*(?:para|de)?\s*)?(?:r\$\s*)?(\d{1,3})/i);
-    if (changeMatch) {
-      session.orderData.change = changeMatch[1];
-      console.log(`[EXTRACT] 💵 Troco detectado: R$ ${session.orderData.change}`);
-    }
-  }
-}
-
-// BUSCAR RESTAURANTES COM GEMINI - FUNÇÃO PRINCIPAL! 🚀
-async function searchRestaurantsWithGemini(session) {
+// 🚀 BUSCAR RESTAURANTES IMEDIATAMENTE - FUNÇÃO PRINCIPAL!
+async function buscarRestaurantesImediatamente(session) {
   try {
-    console.log(`[GEMINI-SEARCH] 🔍 INICIANDO BUSCA REAL...`);
+    console.log(`[BUSCA] 🔥 INICIANDO BUSCA CRÍTICA PARA: ${session.id}`);
     
-    // Extrair cidade do endereço
+    // Extrair dados
     const addressParts = session.orderData.address.split(',');
     const city = addressParts[addressParts.length - 1]?.trim() || 'Rio de Janeiro';
     const neighborhood = addressParts[addressParts.length - 2]?.trim() || '';
 
-    console.log(`[GEMINI-SEARCH] 📍 BUSCANDO EM: ${city}, Bairro: ${neighborhood}`);
-    console.log(`[GEMINI-SEARCH] 🍕 TIPO: ${session.orderData.food}`);
-
-    // PROMPT PREMIUM para busca de restaurantes
-    const searchPrompt = `
-Você é um especialista em restaurantes do Brasil. Encontre 3 restaurantes REAIS que entregam "${session.orderData.food}" na região de ${neighborhood ? neighborhood + ', ' : ''}${city}.
-
-INSTRUÇÕES CRÍTICAS:
-✅ Use APENAS restaurantes que realmente existem
-✅ WhatsApp DEVE ser real (formato: 55DDXXXXXXXXX onde DD é DDD da cidade)
-✅ Preços realistas para ${city} 2024
-✅ Tempo de entrega real considerando localização
-✅ Priorize estabelecimentos conhecidos e bem avaliados
-
-TIPO DE COMIDA: ${session.orderData.food}
-REGIÃO: ${neighborhood ? neighborhood + ', ' : ''}${city}
-
-RESPONDA APENAS EM JSON VÁLIDO:
-[
-  {
-    "name": "Nome Real do Restaurante",
-    "phone": "55DDXXXXXXXXX",
-    "specialty": "Especialidade principal",
-    "estimatedTime": "25-35 min",
-    "price": "R$ 28-45"
-  },
-  {
-    "name": "Segundo Restaurante Real", 
-    "phone": "55DDXXXXXXXXX",
-    "specialty": "Especialidade",
-    "estimatedTime": "30-40 min",
-    "price": "R$ 32-50"
-  },
-  {
-    "name": "Terceiro Restaurante Real",
-    "phone": "55DDXXXXXXXXX", 
-    "specialty": "Especialidade",
-    "estimatedTime": "35-45 min",
-    "price": "R$ 25-42"
-  }
-]
-
-CRÍTICO: Resposta deve ser JSON puro, sem texto adicional! Use DDD correto da cidade!
-`;
-
-    console.log(`[GEMINI-SEARCH] 🤖 CONSULTANDO GEMINI AGORA...`);
-
-    // Consultar Gemini
-    const result = await model.generateContent(searchPrompt);
-    const response = result.response.text();
-    
-    console.log(`[GEMINI-SEARCH] 📝 RESPOSTA GEMINI:`, response.substring(0, 300));
+    console.log(`[BUSCA] 📍 Local: ${neighborhood}, ${city}`);
+    console.log(`[BUSCA] 🍕 Comida: ${session.orderData.food}`);
 
     let restaurants;
+
     try {
-      // Extrair JSON da resposta
-      const jsonMatch = response.match(/\[\s*{[\s\S]*?}\s*\]/);
+      // TENTAR BUSCA COM GEMINI PRIMEIRO
+      const searchPrompt = `
+Encontre 3 restaurantes REAIS no ${city}, Brasil que entregam "${session.orderData.food}".
+
+REGRAS CRÍTICAS:
+- Restaurantes DEVEM existir de verdade
+- WhatsApp DEVE ter DDD correto (Rio de Janeiro = 21, São Paulo = 11, etc.)
+- Preços DEVEM ser realistas para 2024
+- Tempo de entrega DEVE ser real
+
+CIDADE: ${city}
+COMIDA: ${session.orderData.food}
+
+Responda APENAS JSON puro:
+[
+  {
+    "name": "Nome Real",
+    "phone": "55DDXXXXXXXXX",
+    "specialty": "Especialidade",
+    "estimatedTime": "25-35 min",
+    "price": "R$ 28-45"
+  }
+]
+`;
+
+      console.log(`[BUSCA] 🤖 Consultando Gemini...`);
+      const result = await model.generateContent(searchPrompt);
+      const geminiResponse = result.response.text();
+      
+      console.log(`[BUSCA] 📝 Resposta Gemini: ${geminiResponse.substring(0, 200)}...`);
+      
+      // Extrair JSON
+      const jsonMatch = geminiResponse.match(/\[\s*{[\s\S]*?}\s*\]/);
       if (jsonMatch) {
         restaurants = JSON.parse(jsonMatch[0]);
-        
-        // Validar estrutura
-        if (!Array.isArray(restaurants) || restaurants.length === 0) {
-          throw new Error('Array vazio');
-        }
-        
-        // Validar campos obrigatórios
-        restaurants.forEach((rest, i) => {
-          if (!rest.name || !rest.phone || !rest.specialty || !rest.estimatedTime || !rest.price) {
-            throw new Error(`Restaurante ${i} incompleto`);
-          }
-        });
-        
-        console.log(`[GEMINI-SEARCH] ✅ SUCESSO! ${restaurants.length} restaurantes encontrados`);
-        
+        console.log(`[BUSCA] ✅ GEMINI SUCESSO! ${restaurants.length} restaurantes`);
       } else {
-        throw new Error('JSON não encontrado');
+        throw new Error('JSON inválido do Gemini');
       }
       
-    } catch (parseError) {
-      console.log(`[GEMINI-SEARCH] ⚠️ ERRO PARSE: ${parseError.message}`);
-      console.log(`[GEMINI-SEARCH] 🔄 USANDO FALLBACK PREMIUM...`);
+    } catch (geminiError) {
+      console.log(`[BUSCA] ⚠️ Gemini falhou: ${geminiError.message}`);
+      console.log(`[BUSCA] 🔄 Usando dados premium...`);
       
-      // Dados premium baseados no tipo de comida
-      restaurants = generatePremiumRestaurants(session.orderData.food, city);
+      // FALLBACK PREMIUM
+      restaurants = gerarRestaurantesPremium(session.orderData.food, city);
     }
 
-    // Salvar no sistema de pedidos
-    orders.set(session.id, {
+    // VALIDAR RESTAURANTES
+    if (!restaurants || !Array.isArray(restaurants) || restaurants.length === 0) {
+      restaurants = gerarRestaurantesPremium(session.orderData.food, city);
+    }
+
+    console.log(`[BUSCA] 🎯 RESTAURANTES FINALIZADOS:`, restaurants);
+
+    // CONSTRUIR MENSAGEM PERFEITA
+    let optionsMessage = "🍕 ENCONTREI! Melhores opções para você:\n\n";
+    restaurants.forEach((rest, index) => {
+      optionsMessage += `${index + 1}. **${rest.name}**\n`;
+      optionsMessage += `   ${rest.specialty} • ${rest.estimatedTime}\n`;
+      optionsMessage += `   💰 ${rest.price}\n\n`;
+    });
+    optionsMessage += "Digite o NÚMERO da sua escolha! 🎯";
+
+    // ADICIONAR À LISTA DE MENSAGENS PENDENTES NO STORAGE GLOBAL
+    global.pendingMessages.set(session.id, {
+      message: optionsMessage,
+      timestamp: new Date(),
+      restaurants: restaurants
+    });
+
+    // SALVAR PEDIDO NO STORAGE GLOBAL
+    global.orders.set(session.id, {
       sessionId: session.id,
       restaurants: restaurants,
       orderData: session.orderData,
@@ -431,29 +299,37 @@ CRÍTICO: Resposta deve ser JSON puro, sem texto adicional! Use DDD correto da c
       timestamp: new Date()
     });
 
-    console.log(`[GEMINI-SEARCH] 🎉 BUSCA CONCLUÍDA! Retornando ${restaurants.length} opções`);
-    return restaurants;
+    console.log(`[BUSCA] 🚀 SUCESSO TOTAL! Mensagem adicionada para polling: ${session.id}`);
     
   } catch (error) {
-    console.error('[GEMINI-SEARCH] ❌ ERRO CRÍTICO:', error);
-    return generatePremiumRestaurants(session.orderData.food, 'Rio de Janeiro');
+    console.error(`[BUSCA] ❌ ERRO CRÍTICO:`, error);
+    
+    // ADICIONAR MENSAGEM DE ERRO
+    global.pendingMessages.set(session.id, {
+      message: "😔 Erro ao buscar restaurantes. Tente novamente em alguns segundos.",
+      timestamp: new Date()
+    });
   }
 }
 
-// Gerar restaurantes premium por tipo de comida
-function generatePremiumRestaurants(foodType, city) {
-  console.log(`[FALLBACK] 🔄 Gerando restaurantes premium para: ${foodType} em ${city}`);
+// Gerar restaurantes premium por tipo e cidade
+function gerarRestaurantesPremium(foodType, city) {
+  console.log(`[FALLBACK] 🔄 Gerando dados premium: ${foodType} em ${city}`);
   
-  // Determinar DDD baseado na cidade
-  let ddd = '11'; // São Paulo como padrão
-  if (city.toLowerCase().includes('rio')) ddd = '21';
-  else if (city.toLowerCase().includes('salvador')) ddd = '71';
-  else if (city.toLowerCase().includes('brasília')) ddd = '61';
-  else if (city.toLowerCase().includes('fortaleza')) ddd = '85';
-  else if (city.toLowerCase().includes('recife')) ddd = '81';
-  else if (city.toLowerCase().includes('porto alegre')) ddd = '51';
-  else if (city.toLowerCase().includes('curitiba')) ddd = '41';
-  else if (city.toLowerCase().includes('goiânia')) ddd = '62';
+  // Determinar DDD por cidade
+  let ddd = '11'; // SP padrão
+  const cityLower = city.toLowerCase();
+  
+  if (cityLower.includes('rio')) ddd = '21';
+  else if (cityLower.includes('salvador')) ddd = '71';
+  else if (cityLower.includes('brasília') || cityLower.includes('brasilia')) ddd = '61';
+  else if (cityLower.includes('fortaleza')) ddd = '85';
+  else if (cityLower.includes('recife')) ddd = '81';
+  else if (cityLower.includes('porto alegre')) ddd = '51';
+  else if (cityLower.includes('curitiba')) ddd = '41';
+  else if (cityLower.includes('goiânia') || cityLower.includes('goiania')) ddd = '62';
+  else if (cityLower.includes('belo horizonte')) ddd = '31';
+  else if (cityLower.includes('manaus')) ddd = '92';
   
   const foodLower = foodType.toLowerCase();
   
@@ -476,7 +352,7 @@ function generatePremiumRestaurants(foodType, city) {
       {
         name: 'Dona Maria Pizzaria',
         phone: `55${ddd}965432109`,
-        specialty: 'Pizza tradicional carioca',
+        specialty: 'Pizza tradicional brasileira',
         estimatedTime: '25-35 min',
         price: 'R$ 28-48'
       }
@@ -524,7 +400,7 @@ function generatePremiumRestaurants(foodType, city) {
       {
         name: 'Classic American Burger',
         phone: `55${ddd}965432111`,
-        specialty: 'Estilo americano tradicional',
+        specialty: 'Hamburguer tradicional',
         estimatedTime: '20-30 min',
         price: 'R$ 25-42'
       }
@@ -554,5 +430,72 @@ function generatePremiumRestaurants(foodType, city) {
         price: 'R$ 35-58'
       }
     ];
+  }
+}
+
+// Extrair informações do pedido
+async function extractOrderInfo(session, messageHistory, currentMessage) {
+  console.log(`[EXTRACT] 🔍 Analisando: ${currentMessage}`);
+
+  const lowerMessage = messageHistory.toLowerCase();
+  const currentLower = currentMessage.toLowerCase();
+
+  // Detectar COMIDA
+  if (!session.orderData.food) {
+    const foodKeywords = ['pizza', 'hambur', 'sushi', 'yakisoba', 'lanche', 'combo', 'prato', 'comida'];
+    if (foodKeywords.some(kw => currentLower.includes(kw))) {
+      session.orderData.food = currentMessage;
+      console.log(`[EXTRACT] 🍕 Comida: ${currentMessage}`);
+    }
+  }
+
+  // Detectar ENDEREÇO
+  if (!session.orderData.address) {
+    const addressPatterns = [
+      /(?:rua|r\.)\s+[^\d,]+,?\s*\d+/i,
+      /(?:avenida|av\.)\s+[^\d,]+,?\s*\d+/i,
+      /[^\d,]+,\s*\d+/i
+    ];
+
+    for (const pattern of addressPatterns) {
+      if (pattern.test(currentMessage)) {
+        session.orderData.address = currentMessage;
+        console.log(`[EXTRACT] 📍 Endereço: ${currentMessage}`);
+        break;
+      }
+    }
+  }
+
+  // Detectar TELEFONE
+  if (!session.orderData.phone) {
+    const phoneMatch = currentMessage.match(/(?:\+55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\s*)?[\d\s-]{8,11}/);
+    if (phoneMatch) {
+      session.orderData.phone = phoneMatch[0].replace(/\D/g, '');
+      console.log(`[EXTRACT] 📱 Telefone: ${session.orderData.phone}`);
+    }
+  }
+
+  // Detectar PAGAMENTO
+  if (!session.orderData.paymentMethod) {
+    if (currentLower.includes('dinheiro') || currentLower.includes('espécie')) {
+      session.orderData.paymentMethod = 'dinheiro';
+    } else if (currentLower.includes('cartão') || currentLower.includes('cartao')) {
+      session.orderData.paymentMethod = 'cartão';
+    } else if (currentLower.includes('pix')) {
+      session.orderData.paymentMethod = 'pix';
+    }
+    
+    if (session.orderData.paymentMethod) {
+      console.log(`[EXTRACT] 💰 Pagamento: ${session.orderData.paymentMethod}`);
+    }
+  }
+
+  // Detectar TROCO
+  if (session.orderData.paymentMethod === 'dinheiro' && !session.orderData.change) {
+    const changeMatch = currentMessage.match(/(?:troco\s*(?:para|de)?\s*)?(?:r\$\s*)?(\d{1,3})/i);
+    if (changeMatch) {
+      session.orderData.change = changeMatch[1];
+      console.log(`[EXTRACT] 💵 Troco: R$ ${session.orderData.change}`);
+    }
   }
 }
