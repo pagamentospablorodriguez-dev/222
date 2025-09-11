@@ -13,11 +13,9 @@ const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 // Armazenamento em memória (em produção, usar banco de dados)
 const sessions = new Map();
 const orders = new Map();
+const pendingMessages = new Map(); // Para mensagens automáticas
 
-// Sistema de mensagens sequenciais
-const messageQueue = new Map();
-
-// Prompt otimizado - Mix do melhor dos dois mundos
+// Prompt otimizado PERFEITO
 const SYSTEM_PROMPT = `
 Você é o IA Fome, um assistente inteligente especializado em pedidos de comida por delivery. Você funciona como um concierge particular premium, oferecendo o melhor atendimento personalizado possível.
 
@@ -29,93 +27,59 @@ PERSONALIDADE:
 - Eficiente e profissional, mas amigável
 - Focado em resolver tudo para o cliente
 - Mensagens CURTAS e DIRETAS (máximo 150 caracteres)
-- Se precisar falar mais, mencione que enviará mais detalhes
+- SEMPRE ofereça opções específicas e exemplos
 
 PROCESSO DE ATENDIMENTO:
 
 RECEPÇÃO DO PEDIDO:
-- Cumprimente apenas na primeira vez
+- Cumprimente apenas na primeira vez de forma calorosa
 - Identifique o que querem comer
-- Seja específico sobre quantidades, tamanhos, sabores
-- SEMPRE ofereça opções específicas (ex: hamburger: clássico, cheese, bacon, frango, vegano)
+- SEMPRE ofereça opções específicas com exemplos
 
 COLETA DE INFORMAÇÕES (uma por vez):
-- Comida: tipo, sabor, tamanho (SEMPRE liste opções: "pequena, média, grande ou família?")
+- Comida: tipo, sabor, tamanho
+- SEMPRE liste opções específicas:
+  * Pizza: "margherita, calabresa, portuguesa, quatro queijos, frango catupiry"
+  * Hamburger: "clássico, cheeseburger, bacon burger, frango grelhado, vegano"
+  * Sushi: "combinado tradicional, salmão, hot philadelphia, temaki misto"
+  * Yakisoba: "frango, carne, camarão, legumes, misto"
+  * Tamanhos: "pequena, média, grande ou família?"
+
 - Sugestões proativas: bebidas, sobremesas, acompanhamentos
 - Endereço completo de entrega
 - Número de WhatsApp do cliente
 - Forma de pagamento (dinheiro, cartão, PIX)
 - Se dinheiro: quanto de troco (APENAS após saber o preço)
-- Observações especiais
 
-EXEMPLOS DE OPÇÕES ESPECÍFICAS:
-- Pizza: "margherita, calabresa, portuguesa, quatro queijos, frango catupiry"
-- Hamburger: "clássico, cheeseburger, bacon burger, frango grelhado, vegano"
-- Sushi: "combinado tradicional, salmão, hot philadelphia, temaki"
-- Tamanhos: "pequena, média, grande ou família?"
+TRATAMENTO DE RESPOSTAS VAGAS:
+Se o cliente responder "sei lá", "não sei", "tanto faz":
+- NÃO responda apenas "ok"
+- Ofereça sugestões específicas
+- Exemplo: "Que tal um sushi tradicional com salmão? Ou prefere um combinado misto?"
 
 BUSCA DE RESTAURANTES:
+- Quando tiver TODAS as informações necessárias
 - Informe que está buscando as melhores opções
-- Use Gemini para encontrar restaurantes reais na cidade
-- IMEDIATAMENTE após buscar, apresente as opções
-- NÃO espere resposta do cliente para mostrar as opções
-
-APRESENTAÇÃO DE OPÇÕES:
-- Apresente 2-3 opções de restaurantes
-- Inclua nome, especialidade, tempo estimado, preço aproximado
-- Peça para o cliente escolher
-- Envie tudo em UMA mensagem completa
-
-CONFIRMAÇÃO E PEDIDO:
-- Confirme todos os detalhes
-- Tranquilize o cliente sobre o processo
-- Explique que vai entrar em contato com o restaurante
-- Informe que receberá atualizações no chat e WhatsApp
-
-DIRETRIZES IMPORTANTES:
-- SEMPRE lembre do contexto completo da conversa
-- Ofereça opções específicas para cada tipo de comida
-- NUNCA invente informações sobre restaurantes
-- Seja proativo - não espere cliente para enviar opções
-- Uma pergunta por vez, mas com opções claras
+- Diga "aguarde um instante"
+- A busca será feita automaticamente
 
 INFORMAÇÕES NECESSÁRIAS:
 1. Comida desejada (tipo, sabor, tamanho)
-2. Endereço completo de entrega
+2. Endereço completo de entrega  
 3. Número de WhatsApp
 4. Forma de pagamento
 5. Se dinheiro: valor do troco (após saber preço)
 
-Quando tiver TODAS essas informações, IMEDIATAMENTE inicie busca e apresente opções.
-`;
+DIRETRIZES IMPORTANTES:
+- SEMPRE lembre do contexto completo da conversa
+- Ofereça opções específicas para cada tipo de comida
+- NUNCA responda apenas "ok" para respostas vagas
+- Seja útil e proativo sempre
+- Uma pergunta por vez, mas com opções claras
 
-// Prompt para buscar restaurantes com Gemini
-const RESTAURANT_SEARCH_PROMPT = `
-Você é um especialista em restaurantes e delivery. Encontre 2-3 restaurantes REAIS que entregam {FOOD_TYPE} na região de {CITY}, Rio de Janeiro.
-
-Para cada restaurante, forneça:
-- Nome do restaurante (real e existente)
-- Número de WhatsApp (formato: 5521999999999 - Rio de Janeiro)
-- Especialidade
-- Tempo estimado de entrega
-- Preço aproximado do item solicitado
-
-IMPORTANTE:
-- Use apenas restaurantes que realmente existem na região
-- Números de WhatsApp devem ser realistas para estabelecimentos do Rio
-- Preços devem ser realistas para a região (RJ)
-- Priorize estabelecimentos conhecidos e com boa reputação
-
-Responda APENAS em formato JSON:
-[
-  {
-    "name": "Nome do Restaurante",
-    "phone": "5521999999999",
-    "specialty": "Especialidade do restaurante",
-    "estimatedTime": "30-40 min",
-    "price": "R$ 35-45"
-  }
-]
+Exemplo de resposta para "sei lá":
+Cliente: "sei lá mano"
+Você: "Que tal um sushi combinado com salmão e hot philadelphia? Ou prefere yakisoba de frango?"
 `;
 
 exports.handler = async (event, context) => {
@@ -149,6 +113,8 @@ exports.handler = async (event, context) => {
       };
     }
 
+    console.log(`[CHAT] Sessão: ${sessionId}, Mensagem: ${message}`);
+
     // Obter ou criar sessão
     let session = sessions.get(sessionId);
     if (!session) {
@@ -171,6 +137,7 @@ exports.handler = async (event, context) => {
         lastActive: new Date()
       };
       sessions.set(sessionId, session);
+      console.log(`[CHAT] Nova sessão criada: ${sessionId}`);
     }
 
     // Atualizar sessão
@@ -184,10 +151,14 @@ exports.handler = async (event, context) => {
     });
     context += `Cliente: ${message}\nIA Fome:`;
 
+    console.log(`[CHAT] Gerando resposta para: ${message}`);
+
     // Gerar resposta da IA
     const result = await model.generateContent(context);
     const response = result.response;
     let aiMessage = response.text().trim();
+
+    console.log(`[CHAT] Resposta gerada: ${aiMessage}`);
 
     // Limitar tamanho da mensagem (máximo 150 caracteres)
     if (aiMessage.length > 150) {
@@ -200,8 +171,6 @@ exports.handler = async (event, context) => {
 
     // Extrair informações do pedido
     const messageHistory = messages.map(m => m.content).join(' ') + ' ' + message;
-
-    // Detectar e salvar informações
     await extractOrderInfo(session, messageHistory, message);
 
     // Verificar se temos todas as informações necessárias
@@ -211,18 +180,42 @@ exports.handler = async (event, context) => {
                       session.orderData.paymentMethod &&
                       (session.orderData.paymentMethod !== 'dinheiro' || session.orderData.change);
 
+    console.log(`[CHAT] Informações coletadas:`, session.orderData);
+    console.log(`[CHAT] Tem todas as informações: ${hasAllInfo}`);
+
     // Se temos todas as informações E ainda não buscamos restaurantes
-    if (hasAllInfo && session.stage === 'initial') {
+    if (hasAllInfo && session.stage === 'initial' && 
+        (aiMessage.includes('buscando') || aiMessage.includes('aguard') || aiMessage.includes('procurand'))) {
       session.stage = 'searching_restaurant';
+      console.log(`[CHAT] Iniciando busca de restaurantes para: ${sessionId}`);
       
-      // Buscar restaurantes IMEDIATAMENTE
+      // Chamar função de busca IMEDIATAMENTE
       setTimeout(async () => {
         try {
-          await searchAndPresentRestaurants(sessionId, session);
+          const restaurants = await searchRestaurants(session);
+          if (restaurants && restaurants.length > 0) {
+            // Construir mensagem com opções
+            let optionsMessage = "🍕 Encontrei ótimas opções para você:\n\n";
+            restaurants.forEach((rest, index) => {
+              optionsMessage += `${index + 1}. **${rest.name}**\n`;
+              optionsMessage += `   ${rest.specialty}\n`;
+              optionsMessage += `   ⏰ ${rest.estimatedTime}\n`;
+              optionsMessage += `   💰 ${rest.price}\n\n`;
+            });
+            optionsMessage += "Qual restaurante você prefere? Digite o número da opção! 😊";
+
+            // Armazenar mensagem para polling
+            pendingMessages.set(sessionId, {
+              message: optionsMessage,
+              timestamp: new Date()
+            });
+
+            console.log(`[BUSCA] Opções encontradas para ${sessionId}:`, restaurants);
+          }
         } catch (error) {
           console.error('Erro ao buscar restaurantes:', error);
         }
-      }, 2000); // 2 segundos para parecer que está processando
+      }, 3000);
     }
 
     return {
@@ -245,11 +238,14 @@ exports.handler = async (event, context) => {
 
 // Extrair informações do pedido
 async function extractOrderInfo(session, messageHistory, currentMessage) {
+  console.log(`[EXTRACT] Extraindo informações de: ${currentMessage}`);
+
   // Detectar comida
   if (!session.orderData.food) {
-    const foodMatch = messageHistory.match(/(pizza|hamburguer|hamburger|lanche|sushi|japonês|chinês|italiana|brasileira|mexicana|árabe|margherita|calabresa|portuguesa|frango|carne|peixe|vegetariana|mcchicken|mcnuggets|big mac|cheeseburger)/i);
+    const foodMatch = messageHistory.match(/(pizza|hamburguer|hamburger|lanche|sushi|japonês|chinês|italiana|brasileira|mexicana|árabe|margherita|calabresa|portuguesa|frango|carne|peixe|vegetariana|mcchicken|mcnuggets|big mac|cheeseburger|yakisoba)/i);
     if (foodMatch) {
       session.orderData.food = currentMessage;
+      console.log(`[EXTRACT] Comida detectada: ${currentMessage}`);
     }
   }
 
@@ -258,6 +254,7 @@ async function extractOrderInfo(session, messageHistory, currentMessage) {
     const addressMatch = messageHistory.match(/(rua|avenida|av\.|r\.|endereço|entregar|entrega).+?(\d+)/i);
     if (addressMatch) {
       session.orderData.address = currentMessage;
+      console.log(`[EXTRACT] Endereço detectado: ${currentMessage}`);
     }
   }
 
@@ -266,6 +263,7 @@ async function extractOrderInfo(session, messageHistory, currentMessage) {
     const phoneMatch = messageHistory.match(/(\d{10,11}|\(\d{2}\)\s*\d{4,5}-?\d{4})/);
     if (phoneMatch) {
       session.orderData.phone = phoneMatch[0].replace(/\D/g, '');
+      console.log(`[EXTRACT] Telefone detectado: ${session.orderData.phone}`);
     }
   }
 
@@ -273,10 +271,13 @@ async function extractOrderInfo(session, messageHistory, currentMessage) {
   if (!session.orderData.paymentMethod) {
     if (messageHistory.match(/(dinheiro|espécie)/i)) {
       session.orderData.paymentMethod = 'dinheiro';
+      console.log(`[EXTRACT] Pagamento: dinheiro`);
     } else if (messageHistory.match(/(cartão|cartao)/i)) {
       session.orderData.paymentMethod = 'cartão';
+      console.log(`[EXTRACT] Pagamento: cartão`);
     } else if (messageHistory.match(/pix/i)) {
       session.orderData.paymentMethod = 'pix';
+      console.log(`[EXTRACT] Pagamento: pix`);
     }
   }
 
@@ -285,24 +286,56 @@ async function extractOrderInfo(session, messageHistory, currentMessage) {
     const changeMatch = messageHistory.match(/(\d+)\s*(reais?|r\$)/i);
     if (changeMatch) {
       session.orderData.change = changeMatch[1];
+      console.log(`[EXTRACT] Troco detectado: ${session.orderData.change}`);
     }
   }
 }
 
-// Buscar restaurantes e apresentar opções AUTOMATICAMENTE
-async function searchAndPresentRestaurants(sessionId, session) {
+// Buscar restaurantes REAL
+async function searchRestaurants(session) {
   try {
+    console.log(`[BUSCA] Iniciando busca de restaurantes...`);
+    
     // Extrair cidade do endereço
     const addressParts = session.orderData.address.split(',');
     const city = addressParts[addressParts.length - 1]?.trim() || 'Rio de Janeiro';
 
+    console.log(`[BUSCA] Cidade detectada: ${city}`);
+    console.log(`[BUSCA] Tipo de comida: ${session.orderData.food}`);
+
     // Buscar restaurantes usando Gemini
-    const searchPrompt = RESTAURANT_SEARCH_PROMPT
-      .replace('{FOOD_TYPE}', session.orderData.food)
-      .replace('{CITY}', city);
+    const searchPrompt = `
+Você é um especialista em restaurantes e delivery. Encontre 3 restaurantes REAIS que entregam ${session.orderData.food} na região de ${city}, Rio de Janeiro.
+
+Para cada restaurante, forneça:
+- Nome do restaurante (real e existente)
+- Número de WhatsApp (formato: 5521999999999)
+- Especialidade
+- Tempo estimado de entrega
+- Preço aproximado do item solicitado
+
+IMPORTANTE:
+- Use apenas restaurantes que realmente existem
+- Números de WhatsApp devem ser reais
+- Preços realistas para a região
+- Priorize estabelecimentos conhecidos
+
+Responda APENAS em formato JSON:
+[
+  {
+    "name": "Nome do Restaurante",
+    "phone": "5521999999999", 
+    "specialty": "Especialidade",
+    "estimatedTime": "30-40 min",
+    "price": "R$ 35-45"
+  }
+]
+    `;
 
     const searchResult = await model.generateContent(searchPrompt);
     const restaurantData = searchResult.response.text();
+    
+    console.log(`[BUSCA] Resposta do Gemini: ${restaurantData}`);
 
     let restaurants;
     try {
@@ -310,10 +343,12 @@ async function searchAndPresentRestaurants(sessionId, session) {
       const jsonMatch = restaurantData.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
         restaurants = JSON.parse(jsonMatch[0]);
+        console.log(`[BUSCA] JSON parseado com sucesso:`, restaurants);
       } else {
-        throw new Error('JSON não encontrado');
+        throw new Error('JSON não encontrado na resposta');
       }
     } catch (e) {
+      console.log(`[BUSCA] Erro no JSON, usando dados mock:`, e.message);
       // Se não conseguir parsear JSON, usar dados mock realistas
       restaurants = [
         {
@@ -331,107 +366,28 @@ async function searchAndPresentRestaurants(sessionId, session) {
           price: 'R$ 28-38'
         },
         {
-          name: 'Delivery Express',
+          name: 'Sushi Tokyo',
           phone: '5521977665544',
-          specialty: 'Comida rápida de qualidade',
-          estimatedTime: '20-30 min',
-          price: 'R$ 25-35'
+          specialty: 'Comida japonesa premium',
+          estimatedTime: '40-50 min',
+          price: 'R$ 45-65'
         }
       ];
     }
 
-    // Salvar pedido
-    orders.set(sessionId, {
-      sessionId: sessionId,
+    // Salvar pedido com restaurantes
+    orders.set(session.id, {
+      sessionId: session.id,
       restaurants: restaurants,
       orderData: session.orderData,
       status: 'restaurants_found',
       timestamp: new Date()
     });
 
-    // Construir mensagem com opções
-    let optionsMessage = "🍕 Encontrei ótimas opções para você:\n\n";
-    restaurants.forEach((rest, index) => {
-      optionsMessage += `${index + 1}. **${rest.name}**\n`;
-      optionsMessage += `   ${rest.specialty}\n`;
-      optionsMessage += `   ⏰ ${rest.estimatedTime}\n`;
-      optionsMessage += `   💰 ${rest.price}\n\n`;
-    });
-    optionsMessage += "Qual restaurante você prefere? Digite o número da opção! 😊";
-
-    // Simular envio automático da mensagem
-    // Em produção, isso seria enviado via WebSocket ou webhook
-    console.log(`[ENVIO AUTOMÁTICO] Opções encontradas para ${sessionId}:`, optionsMessage);
-
-    // Marcar que as opções foram apresentadas
-    session.stage = 'restaurants_presented';
-    sessions.set(sessionId, session);
-
+    console.log(`[BUSCA] Busca concluída. ${restaurants.length} restaurantes encontrados.`);
     return restaurants;
   } catch (error) {
-    console.error('Erro ao buscar restaurantes:', error);
+    console.error('[BUSCA] Erro ao buscar restaurantes:', error);
     return null;
-  }
-}
-
-// Fazer pedido no restaurante
-async function makeRestaurantOrder(session, restaurant) {
-  try {
-    // Criar mensagem humanizada para o restaurante
-    const orderDetails = `
-Olá! Gostaria de fazer um pedido para delivery.
-
-📋 PEDIDO:
-${session.orderData.food}
-
-📍 ENDEREÇO:
-${session.orderData.address}
-
-📱 CONTATO:
-${session.orderData.phone}
-
-💳 PAGAMENTO:
-${session.orderData.paymentMethod}${session.orderData.change ? `\nTroco para: R$ ${session.orderData.change}` : ''}
-
-Pode confirmar o pedido e me informar o valor total e tempo de entrega?
-
-Obrigado!
-    `.trim();
-
-    // Enviar mensagem para o restaurante
-    await sendWhatsAppMessage(restaurant.phone, orderDetails);
-
-    console.log(`Pedido enviado para ${restaurant.name}: ${orderDetails.substring(0, 100)}...`);
-  } catch (error) {
-    console.error('Erro ao fazer pedido no restaurante:', error);
-  }
-}
-
-// Função para enviar mensagem via Evolution API
-async function sendWhatsAppMessage(phone, message) {
-  try {
-    // Delay para parecer humano
-    await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
-
-    const response = await fetch(`${EVOLUTION_BASE_URL}/message/sendText/${EVOLUTION_INSTANCE_ID}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': EVOLUTION_TOKEN
-      },
-      body: JSON.stringify({
-        number: phone,
-        text: message
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Erro ao enviar mensagem: ${response.status}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Erro ao enviar WhatsApp:', error);
-    throw error;
   }
 }
