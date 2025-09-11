@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, User, AlertCircle, RotateCcw, Sparkles, Zap, Heart, ChefHat, Utensils, Pizza } from 'lucide-react';
 import { useChat } from '../hooks/useChat';
@@ -12,7 +12,43 @@ interface ChatInterfaceProps {
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMessage }) => {
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const { messages, isLoading, sendMessage, retryMessage, messagesEndRef } = useChat();
+  const { messages, isLoading, sendMessage, retryMessage, messagesEndRef, sessionId } = useChat();
+
+  // Sistema de polling para mensagens automáticas da IA
+  useEffect(() => {
+    if (!isInitialState) {
+      const pollInterval = setInterval(async () => {
+        try {
+          const response = await fetch('/.netlify/functions/poll-messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.hasNewMessage && data.message) {
+              // Simular recebimento de nova mensagem da IA
+              const newMessage = {
+                id: Date.now().toString(),
+                content: data.message,
+                role: 'assistant' as const,
+                timestamp: new Date(),
+                status: 'sent' as const
+              };
+              
+              // Adicionar mensagem sem passar pelo sendMessage
+              window.dispatchEvent(new CustomEvent('newAIMessage', { detail: newMessage }));
+            }
+          }
+        } catch (error) {
+          console.error('Erro no polling:', error);
+        }
+      }, 2000);
+
+      return () => clearInterval(pollInterval);
+    }
+  }, [isInitialState, sessionId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,10 +60,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
     // Se é primeira mensagem, transicionar para chat
     if (isInitialState) {
       onFirstMessage();
+      // Aguardar um frame para garantir que a transição aconteceu
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // SEMPRE processar a mensagem imediatamente
-    await sendMessage(messageToSend);
+    // SEMPRE processar a mensagem - FORÇAR processamento
+    try {
+      await sendMessage(messageToSend);
+    } catch (error) {
+      console.error('Erro ao enviar mensagem:', error);
+      // Tentar novamente em caso de erro
+      setTimeout(() => {
+        sendMessage(messageToSend);
+      }, 1000);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
