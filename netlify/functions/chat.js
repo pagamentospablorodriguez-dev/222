@@ -25,6 +25,7 @@ PERSONALIDADE PREMIUM:
 - Mensagens CURTAS: máximo 120 caracteres
 - Tom amigável mas profissional
 - Focado em RESOLVER TUDO para o cliente
+- NUNCA minta ou finja que está fazendo algo
 
 PROCESSO PERFEITO:
 
@@ -39,22 +40,25 @@ COLETA (uma pergunta por vez):
 5. Pagamento: "Dinheiro, cartão ou PIX?"
 6. Se dinheiro: "Troco para quanto?"
 
-QUANDO TIVER TUDO:
-"Perfeito! Buscando os MELHORES restaurantes para você... ⏳"
-(IMEDIATAMENTE buscar restaurantes)
+QUANDO TIVER TUDO - CRÍTICO:
+APENAS diga: "Perfeito! Buscando restaurantes... ⏳"
+NUNCA diga que encontrou algo se não encontrou
+NUNCA minta sobre o status do pedido
+AGUARDE as opções chegarem pelo sistema automático
 
 EXEMPLOS DE RESPOSTAS:
 - "Pizza grande calabresa e Coca 2L? Perfeito! 🍕 Onde entregar?"
 - "Ótima escolha! Seu número de WhatsApp para atualizações?"
-- "Buscando os melhores restaurantes na sua região... aguarde! ⚡"
+- "Perfeito! Buscando restaurantes... ⏳"
 
-DIRETRIZES:
+DIRETRIZES CRÍTICAS:
 - SEMPRE seja proativo com sugestões
 - Uma pergunta por vez
 - Mensagens curtas e diretas
-- Foque na experiência PREMIUM
-- NUNCA enrole
-- Seja o MELHOR concierge do mundo!
+- NUNCA minta sobre buscar restaurantes
+- NUNCA diga que encontrou opções se não encontrou
+- NUNCA finja que está fazendo pedido
+- Se perguntarem sobre restaurantes, diga: "Ainda buscando, aguarde..."
 
 INFORMAÇÕES OBRIGATÓRIAS:
 ✅ Comida + tamanho/sabor
@@ -63,7 +67,7 @@ INFORMAÇÕES OBRIGATÓRIAS:
 ✅ Forma de pagamento
 ✅ Troco (se dinheiro)
 
-Com TODAS as informações, BUSQUE RESTAURANTES IMEDIATAMENTE!
+Com TODAS as informações, diga APENAS: "Perfeito! Buscando restaurantes... ⏳"
 `;
 
 exports.handler = async (event, context) => {
@@ -177,12 +181,9 @@ exports.handler = async (event, context) => {
       session.stage = 'searching_restaurants';
       console.log(`[CHAT] 🚀 INICIANDO BUSCA IMEDIATA para: ${sessionId}`);
       
-      // Buscar restaurantes IMEDIATAMENTE em paralelo
-      setTimeout(async () => {
-        try {
-          console.log(`[BUSCA] ⚡ Executando busca para ${sessionId}...`);
-          const restaurants = await searchRestaurantsWithGemini(session);
-          
+      // Buscar restaurantes IMEDIATAMENTE - SEM DELAY
+      searchRestaurantsWithGemini(session)
+        .then(restaurants => {
           if (restaurants && restaurants.length > 0) {
             // Construir mensagem com opções PERFEITA
             let optionsMessage = "🍕 ENCONTREI! Melhores opções para você:\n\n";
@@ -193,21 +194,31 @@ exports.handler = async (event, context) => {
             });
             optionsMessage += "Digite o NÚMERO da sua escolha! 🎯";
 
-            // Armazenar mensagem para polling
+            // Armazenar mensagem para polling IMEDIATAMENTE
             pendingMessages.set(sessionId, {
               message: optionsMessage,
               timestamp: new Date(),
               restaurants: restaurants
             });
 
-            console.log(`[BUSCA] ✅ Opções prontas para ${sessionId}:`, restaurants.length);
+            console.log(`[BUSCA] ✅ Opções ENVIADAS para ${sessionId}:`, restaurants.length);
           } else {
+            // Se não encontrou, avisar o cliente
+            pendingMessages.set(sessionId, {
+              message: "😔 Não encontrei restaurantes na sua região. Tente outro tipo de comida ou endereço.",
+              timestamp: new Date()
+            });
             console.error(`[BUSCA] ❌ Nenhum restaurante encontrado para ${sessionId}`);
           }
-        } catch (error) {
+        })
+        .catch(error => {
           console.error('[BUSCA] ❌ Erro na busca:', error);
-        }
-      }, 2000); // 2 segundos de delay natural
+          // Avisar o cliente sobre o erro
+          pendingMessages.set(sessionId, {
+            message: "😔 Erro ao buscar restaurantes. Tente novamente em alguns segundos.",
+            timestamp: new Date()
+          });
+        });
     }
 
     return {
@@ -318,65 +329,65 @@ async function extractOrderInfo(session, messageHistory, currentMessage) {
 // BUSCAR RESTAURANTES COM GEMINI - FUNÇÃO PRINCIPAL! 🚀
 async function searchRestaurantsWithGemini(session) {
   try {
-    console.log(`[GEMINI-SEARCH] 🔍 Iniciando busca inteligente...`);
+    console.log(`[GEMINI-SEARCH] 🔍 INICIANDO BUSCA REAL...`);
     
     // Extrair cidade do endereço
     const addressParts = session.orderData.address.split(',');
     const city = addressParts[addressParts.length - 1]?.trim() || 'Rio de Janeiro';
     const neighborhood = addressParts[addressParts.length - 2]?.trim() || '';
 
-    console.log(`[GEMINI-SEARCH] 📍 Cidade: ${city}, Bairro: ${neighborhood}`);
-    console.log(`[GEMINI-SEARCH] 🍕 Comida: ${session.orderData.food}`);
+    console.log(`[GEMINI-SEARCH] 📍 BUSCANDO EM: ${city}, Bairro: ${neighborhood}`);
+    console.log(`[GEMINI-SEARCH] 🍕 TIPO: ${session.orderData.food}`);
 
     // PROMPT PREMIUM para busca de restaurantes
     const searchPrompt = `
-Você é um especialista em restaurantes do Rio de Janeiro. Encontre 3 restaurantes REAIS que entregam "${session.orderData.food}" na região de ${neighborhood ? neighborhood + ', ' : ''}${city}.
+Você é um especialista em restaurantes do Brasil. Encontre 3 restaurantes REAIS que entregam "${session.orderData.food}" na região de ${neighborhood ? neighborhood + ', ' : ''}${city}.
 
 INSTRUÇÕES CRÍTICAS:
 ✅ Use APENAS restaurantes que realmente existem
-✅ WhatsApp DEVE ser real (formato: 5521XXXXXXXXX)
-✅ Preços realistas para RJ 2024
+✅ WhatsApp DEVE ser real (formato: 55DDXXXXXXXXX onde DD é DDD da cidade)
+✅ Preços realistas para ${city} 2024
 ✅ Tempo de entrega real considerando localização
 ✅ Priorize estabelecimentos conhecidos e bem avaliados
 
 TIPO DE COMIDA: ${session.orderData.food}
-REGIÃO: ${neighborhood ? neighborhood + ', ' : ''}${city}, RJ
+REGIÃO: ${neighborhood ? neighborhood + ', ' : ''}${city}
 
 RESPONDA APENAS EM JSON VÁLIDO:
 [
   {
     "name": "Nome Real do Restaurante",
-    "phone": "5521999999999",
+    "phone": "55DDXXXXXXXXX",
     "specialty": "Especialidade principal",
     "estimatedTime": "25-35 min",
     "price": "R$ 28-45"
   },
   {
     "name": "Segundo Restaurante Real", 
-    "phone": "5521888888888",
+    "phone": "55DDXXXXXXXXX",
     "specialty": "Especialidade",
     "estimatedTime": "30-40 min",
     "price": "R$ 32-50"
   },
   {
     "name": "Terceiro Restaurante Real",
-    "phone": "5521777777777", 
+    "phone": "55DDXXXXXXXXX", 
     "specialty": "Especialidade",
     "estimatedTime": "35-45 min",
     "price": "R$ 25-42"
   }
 ]
 
-IMPORTANTE: Resposta deve ser JSON puro, sem texto adicional!
+CRÍTICO: Resposta deve ser JSON puro, sem texto adicional! Use DDD correto da cidade!
 `;
 
-    console.log(`[GEMINI-SEARCH] 🤖 Consultando Gemini...`);
+    console.log(`[GEMINI-SEARCH] 🤖 CONSULTANDO GEMINI AGORA...`);
 
     // Consultar Gemini
     const result = await model.generateContent(searchPrompt);
     const response = result.response.text();
     
-    console.log(`[GEMINI-SEARCH] 📝 Resposta bruta:`, response.substring(0, 200));
+    console.log(`[GEMINI-SEARCH] 📝 RESPOSTA GEMINI:`, response.substring(0, 300));
 
     let restaurants;
     try {
@@ -397,15 +408,15 @@ IMPORTANTE: Resposta deve ser JSON puro, sem texto adicional!
           }
         });
         
-        console.log(`[GEMINI-SEARCH] ✅ ${restaurants.length} restaurantes válidos encontrados`);
+        console.log(`[GEMINI-SEARCH] ✅ SUCESSO! ${restaurants.length} restaurantes encontrados`);
         
       } else {
         throw new Error('JSON não encontrado');
       }
       
     } catch (parseError) {
-      console.log(`[GEMINI-SEARCH] ⚠️ Erro no parse: ${parseError.message}`);
-      console.log(`[GEMINI-SEARCH] 🔄 Usando dados premium otimizados...`);
+      console.log(`[GEMINI-SEARCH] ⚠️ ERRO PARSE: ${parseError.message}`);
+      console.log(`[GEMINI-SEARCH] 🔄 USANDO FALLBACK PREMIUM...`);
       
       // Dados premium baseados no tipo de comida
       restaurants = generatePremiumRestaurants(session.orderData.food, city);
@@ -420,38 +431,51 @@ IMPORTANTE: Resposta deve ser JSON puro, sem texto adicional!
       timestamp: new Date()
     });
 
-    console.log(`[GEMINI-SEARCH] 🎉 Busca concluída com sucesso!`);
+    console.log(`[GEMINI-SEARCH] 🎉 BUSCA CONCLUÍDA! Retornando ${restaurants.length} opções`);
     return restaurants;
     
   } catch (error) {
-    console.error('[GEMINI-SEARCH] ❌ Erro crítico:', error);
+    console.error('[GEMINI-SEARCH] ❌ ERRO CRÍTICO:', error);
     return generatePremiumRestaurants(session.orderData.food, 'Rio de Janeiro');
   }
 }
 
 // Gerar restaurantes premium por tipo de comida
 function generatePremiumRestaurants(foodType, city) {
+  console.log(`[FALLBACK] 🔄 Gerando restaurantes premium para: ${foodType} em ${city}`);
+  
+  // Determinar DDD baseado na cidade
+  let ddd = '11'; // São Paulo como padrão
+  if (city.toLowerCase().includes('rio')) ddd = '21';
+  else if (city.toLowerCase().includes('salvador')) ddd = '71';
+  else if (city.toLowerCase().includes('brasília')) ddd = '61';
+  else if (city.toLowerCase().includes('fortaleza')) ddd = '85';
+  else if (city.toLowerCase().includes('recife')) ddd = '81';
+  else if (city.toLowerCase().includes('porto alegre')) ddd = '51';
+  else if (city.toLowerCase().includes('curitiba')) ddd = '41';
+  else if (city.toLowerCase().includes('goiânia')) ddd = '62';
+  
   const foodLower = foodType.toLowerCase();
   
   if (foodLower.includes('pizza')) {
     return [
       {
         name: 'Pizzaria Dom Giuseppe',
-        phone: '5521987654321',
+        phone: `55${ddd}987654321`,
         specialty: 'Pizza italiana artesanal',
         estimatedTime: '30-40 min',
         price: 'R$ 35-55'
       },
       {
         name: 'Pizza & Arte',
-        phone: '5521976543210', 
+        phone: `55${ddd}976543210`, 
         specialty: 'Pizza gourmet premium',
         estimatedTime: '35-45 min',
         price: 'R$ 38-58'
       },
       {
         name: 'Dona Maria Pizzaria',
-        phone: '5521965432109',
+        phone: `55${ddd}965432109`,
         specialty: 'Pizza tradicional carioca',
         estimatedTime: '25-35 min',
         price: 'R$ 28-48'
@@ -461,21 +485,21 @@ function generatePremiumRestaurants(foodType, city) {
     return [
       {
         name: 'Sushi Premium Tokyo',
-        phone: '5521987654322',
+        phone: `55${ddd}987654322`,
         specialty: 'Culinária japonesa premium',
         estimatedTime: '40-55 min',
         price: 'R$ 45-75'
       },
       {
         name: 'Yamato Sushi Bar',
-        phone: '5521976543211',
+        phone: `55${ddd}976543211`,
         specialty: 'Sushi fresco e sashimi',
         estimatedTime: '35-50 min',
         price: 'R$ 42-68'
       },
       {
         name: 'Sakura Delivery',
-        phone: '5521965432110',
+        phone: `55${ddd}965432110`,
         specialty: 'Combinados orientais',
         estimatedTime: '45-60 min',
         price: 'R$ 38-65'
@@ -485,21 +509,21 @@ function generatePremiumRestaurants(foodType, city) {
     return [
       {
         name: 'Prime Burger House',
-        phone: '5521987654323',
+        phone: `55${ddd}987654323`,
         specialty: 'Hamburger artesanal premium',
         estimatedTime: '25-35 min',
         price: 'R$ 32-48'
       },
       {
         name: 'Burger & Co.',
-        phone: '5521976543212',
+        phone: `55${ddd}976543212`,
         specialty: 'Burgers gourmet',
         estimatedTime: '30-40 min',
         price: 'R$ 28-45'
       },
       {
         name: 'Classic American Burger',
-        phone: '5521965432111',
+        phone: `55${ddd}965432111`,
         specialty: 'Estilo americano tradicional',
         estimatedTime: '20-30 min',
         price: 'R$ 25-42'
@@ -510,21 +534,21 @@ function generatePremiumRestaurants(foodType, city) {
     return [
       {
         name: 'Sabor Gourmet Express',
-        phone: '5521987654324',
+        phone: `55${ddd}987654324`,
         specialty: 'Culinária variada premium',
         estimatedTime: '25-40 min',
         price: 'R$ 30-45'
       },
       {
         name: 'Delícias do Chef',
-        phone: '5521976543213',
+        phone: `55${ddd}976543213`,
         specialty: 'Pratos especiais do dia',
         estimatedTime: '30-45 min',
         price: 'R$ 28-48'
       },
       {
         name: 'Food & Style',
-        phone: '5521965432112',
+        phone: `55${ddd}965432112`,
         specialty: 'Gastronomia contemporânea',
         estimatedTime: '35-50 min',
         price: 'R$ 35-58'
