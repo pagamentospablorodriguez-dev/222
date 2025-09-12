@@ -240,7 +240,8 @@ async function searchRealRestaurantsAPI(orderData) {
     const city = orderData.city || 'Volta Redonda';
     
     console.log(`[API] 📍 Cidade para busca: ${city}`);
-    console.log(`[API] 🍕 Comida: ${orderData.food}`);
+    console.log(`[API] 🍕 Comida original: ${orderData.food}`);
+    console.log(`[API] 🍕 Comida limpa: ${orderData.foodType}`);
     
     // Chamar nossa API de busca INTERNA (mesma instância)
     const apiUrl = `${process.env.URL || 'https://iafome.netlify.app'}/.netlify/functions/search-restaurants`;
@@ -253,7 +254,7 @@ async function searchRealRestaurantsAPI(orderData) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        food: orderData.food,
+        food: orderData.foodType || 'pizza', // USAR TIPO LIMPO
         city: city,
         state: 'RJ'
       })
@@ -298,6 +299,7 @@ function extractOrderFromMessages(messages, currentMessage) {
   
   const orderData = {
     food: null,
+    foodType: null, // NOVO: tipo limpo de comida
     address: null,
     city: null,
     phone: null,
@@ -305,17 +307,29 @@ function extractOrderFromMessages(messages, currentMessage) {
     change: null
   };
 
-  // Extrair COMIDA - buscar na mensagem mais recente que contém comida
-  const foodKeywords = ['pizza', 'hamburguer', 'hamburger', 'sushi', 'lanche', 'combo', 'sanduiche', 'pastel', 'açaí'];
+  // Extrair COMIDA - MELHORADO para extrair tipo correto
+  const foodKeywords = [
+    { keyword: 'pizza', type: 'pizza' },
+    { keyword: 'hamburguer', type: 'hamburguer' },
+    { keyword: 'hamburger', type: 'hamburguer' },
+    { keyword: 'sushi', type: 'sushi' },
+    { keyword: 'lanche', type: 'lanche' },
+    { keyword: 'combo', type: 'lanche' },
+    { keyword: 'sanduiche', type: 'lanche' },
+    { keyword: 'pastel', type: 'pastel' },
+    { keyword: 'açaí', type: 'açaí' }
+  ];
   
-  for (const keyword of foodKeywords) {
+  for (const { keyword, type } of foodKeywords) {
     if (allUserText.includes(keyword)) {
-      // Buscar nas mensagens do usuário (não nas do assistente)
+      // Buscar a mensagem que contém a comida
       const userMessagesWithCurrent = [...messages.filter(msg => msg.role === 'user').map(m => m.content), currentMessage];
       
       for (const msg of userMessagesWithCurrent) {
         if (msg.toLowerCase().includes(keyword)) {
-          orderData.food = msg;
+          orderData.food = msg; // Mensagem completa
+          orderData.foodType = type; // Tipo limpo
+          console.log(`[EXTRACT] 🍕 Comida encontrada: ${keyword} -> ${type}`);
           break;
         }
       }
@@ -328,7 +342,7 @@ function extractOrderFromMessages(messages, currentMessage) {
     /(?:rua|avenida|av\.?|r\.?)\s+[^,\n]+(?:,?\s*n?\.?\s*\d+)?(?:,\s*[^,\n]+)*/i,
     /entregar?\s+em:?\s*([^.\n]+)/i,
     /endere[çc]o:?\s*([^.\n]+)/i,
-    /pra\s+entregar\s+em\s+([^.\n]+)/i
+    /para\s+entregar\s+em\s+([^.\n]+)/i
   ];
   
   for (const pattern of addressPatterns) {
@@ -357,7 +371,7 @@ function extractOrderFromMessages(messages, currentMessage) {
       
       // Se não encontrou cidade conhecida, tentar última parte LIMPA do endereço
       if (!orderData.city) {
-        const cleanAddress = orderData.address.replace(/pra pagar no cartão|vou pagar no cartão/gi, '');
+        const cleanAddress = orderData.address.replace(/para pagar no cartão|vou pagar no cartão/gi, '');
         const parts = cleanAddress.split(',').map(part => part.trim());
         
         for (const part of parts.reverse()) {
@@ -435,7 +449,7 @@ async function makeOrderImmediately(orderData, restaurant) {
     if (cleanAddress) {
       cleanAddress = cleanAddress
         .replace(/r em /gi, '')
-        .replace(/pra pagar no cartão|vou pagar no cartão/gi, '')
+        .replace(/para pagar no cartão|vou pagar no cartão/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
     }
