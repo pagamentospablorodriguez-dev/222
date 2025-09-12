@@ -40,6 +40,8 @@ INFORMAÇÕES OBRIGATÓRIAS:
 ✅ WhatsApp
 ✅ Forma de pagamento
 ✅ Troco (se dinheiro)
+
+IMPORTANTE: NUNCA invente restaurantes! Sempre aguarde a busca real retornar as opções.
 `;
 
 exports.handler = async (event, context) => {
@@ -72,27 +74,33 @@ exports.handler = async (event, context) => {
       };
     }
 
-    console.log(`[CHAT] 🚀 NOVA ABORDAGEM: ${sessionId} - ${message}`);
+    console.log(`[CHAT] 🚀 NOVA MENSAGEM: ${sessionId} - ${message}`);
 
     // Extrair dados diretamente das mensagens
     const orderData = extractOrderFromMessages(messages, message);
     console.log(`[CHAT] 📊 Dados extraídos:`, orderData);
 
-    // Verificar se temos todas as informações
-    const hasAllInfo = orderData.food && 
-                      orderData.address && 
-                      orderData.phone && 
-                      orderData.paymentMethod &&
-                      (orderData.paymentMethod !== 'dinheiro' || orderData.change);
+    // Verificar se temos todas as informações OBRIGATÓRIAS
+    const hasAllInfo = !!(orderData.food && 
+                         orderData.address && 
+                         orderData.phone && 
+                         orderData.paymentMethod &&
+                         (orderData.paymentMethod !== 'dinheiro' || orderData.change));
 
     console.log(`[CHAT] ✅ Info completa: ${hasAllInfo}`);
+    console.log(`[CHAT] 🔍 Detalhes:`, {
+      food: !!orderData.food,
+      address: !!orderData.address,
+      phone: !!orderData.phone,
+      payment: !!orderData.paymentMethod
+    });
 
-    // 🔥 DETECÇÃO INTELIGENTE: Se cliente digitou 1, 2 ou 3 E já buscou restaurantes antes
+    // 🔥 DETECÇÃO: Se cliente escolheu restaurante (1, 2 ou 3)
     const isRestaurantChoice = /^[123]$/.test(message.trim());
     const previouslySearchedRestaurants = messages.some(msg => 
       msg.role === 'assistant' && 
-      (msg.content.includes('Encontrei') || msg.content.includes('restaurantes')) &&
-      msg.content.match(/[123]\./g)
+      (msg.content.includes('Encontrei') || msg.content.includes('restaurantes REAIS')) &&
+      msg.content.match(/[123]\.\s*\*\*/g)
     );
 
     if (isRestaurantChoice && previouslySearchedRestaurants) {
@@ -132,9 +140,57 @@ exports.handler = async (event, context) => {
           }
         }
       }
+      
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          message: "😔 Erro ao carregar restaurantes. Tente novamente em alguns minutos.",
+          sessionId: sessionId
+        })
+      };
     }
 
-    // Construir contexto para IA
+    // 🚀 SE TEMOS TODAS AS INFORMAÇÕES, BUSCAR RESTAURANTES AUTOMATICAMENTE!
+    if (hasAllInfo) {
+      console.log(`[CHAT] 🔍 TODAS INFORMAÇÕES COLETADAS - BUSCANDO RESTAURANTES AUTOMATICAMENTE!`);
+      
+      const restaurants = await searchRealRestaurantsAPI(orderData);
+      
+      if (restaurants && restaurants.length > 0) {
+        let restaurantsList = "🍕 Encontrei restaurantes REAIS na sua região:\n\n";
+        restaurants.forEach((rest, index) => {
+          restaurantsList += `${index + 1}. **${rest.name}**\n`;
+          restaurantsList += `   📞 ${rest.whatsapp}\n`;
+          restaurantsList += `   📍 ${rest.address}\n`;
+          restaurantsList += `   ⭐ ${rest.rating}/5 • ${rest.estimatedTime}\n`;
+          restaurantsList += `   💰 ${rest.estimatedPrice}\n\n`;
+        });
+        restaurantsList += "Digite o NÚMERO da sua escolha (1, 2 ou 3)! 🎯";
+        
+        console.log(`[CHAT] 🎉 RETORNANDO RESTAURANTES REAIS AUTOMATICAMENTE!`);
+        
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            message: restaurantsList,
+            sessionId: sessionId
+          })
+        };
+      } else {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            message: "😔 Não encontrei restaurantes com WhatsApp na sua região.\n\nPode tentar outro tipo de comida ou me dar mais detalhes da sua localização?",
+            sessionId: sessionId
+          })
+        };
+      }
+    }
+
+    // Construir contexto para IA (só se não tiver todas as informações)
     let context = SYSTEM_PROMPT + "\n\n=== DADOS COLETADOS ===\n";
     context += `Comida: ${orderData.food || 'Não informado'}\n`;
     context += `Endereço: ${orderData.address || 'Não informado'}\n`;
@@ -154,47 +210,6 @@ exports.handler = async (event, context) => {
     let aiMessage = result.response.text().trim();
 
     console.log(`[CHAT] 💬 Resposta IA: ${aiMessage}`);
-
-    // 🚀 SE IA DISSE QUE VAI BUSCAR, BUSCAR AGORA MESMO VIA API REAL!
-    if (hasAllInfo && (aiMessage.includes('buscando') || aiMessage.includes('Buscando') ||
-        aiMessage.includes('procurando') || aiMessage.includes('encontrando'))) {
-      
-      console.log(`[CHAT] 🔍 IA DISSE QUE VAI BUSCAR - FAZENDO VIA API REAL!`);
-      
-      const restaurants = await searchRealRestaurantsAPI(orderData);
-      
-      if (restaurants && restaurants.length > 0) {
-        let restaurantsList = "🍕 Encontrei restaurantes REAIS na sua região:\n\n";
-        restaurants.forEach((rest, index) => {
-          restaurantsList += `${index + 1}. **${rest.name}**\n`;
-          restaurantsList += `   📞 ${rest.whatsapp}\n`;
-          restaurantsList += `   📍 ${rest.address}\n`;
-          restaurantsList += `   ⭐ ${rest.rating}/5 • ${rest.estimatedTime}\n`;
-          restaurantsList += `   💰 ${rest.estimatedPrice}\n\n`;
-        });
-        restaurantsList += "Digite o NÚMERO da sua escolha (1, 2 ou 3)! 🎯";
-        
-        console.log(`[CHAT] 🎉 RETORNANDO OPÇÕES REAIS DIRETAMENTE!`);
-        
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({
-            message: restaurantsList,
-            sessionId: sessionId
-          })
-        };
-      } else {
-        return {
-          statusCode: 200,
-          headers,
-          body: JSON.stringify({
-            message: "😔 Não encontrei restaurantes com WhatsApp na sua região. Pode tentar outro tipo de comida ou cidade?",
-            sessionId: sessionId
-          })
-        };
-      }
-    }
 
     return {
       statusCode: 200,
@@ -219,31 +234,18 @@ exports.handler = async (event, context) => {
 async function searchRealRestaurantsAPI(orderData) {
   try {
     console.log(`[API] 🔍 BUSCANDO VIA API REAL...`);
+    console.log(`[API] 📊 OrderData:`, orderData);
     
-    // Extrair cidade do endereço
-    let city = 'Volta Redonda';
-    if (orderData.address) {
-      const addressParts = orderData.address.split(',');
-      if (addressParts.length > 1) {
-        city = addressParts[addressParts.length - 1].trim();
-      } else {
-        // Tentar extrair cidade de outra forma
-        const cityKeywords = ['volta redonda', 'rio de janeiro', 'niterói', 'são paulo', 'belo horizonte'];
-        for (const keyword of cityKeywords) {
-          if (orderData.address.toLowerCase().includes(keyword)) {
-            city = keyword.split(' ').map(word => 
-              word.charAt(0).toUpperCase() + word.slice(1)
-            ).join(' ');
-            break;
-          }
-        }
-      }
-    }
+    // Usar a cidade já extraída ou fallback
+    const city = orderData.city || 'Volta Redonda';
     
-    console.log(`[API] 📍 Cidade extraída: ${city}`);
+    console.log(`[API] 📍 Cidade para busca: ${city}`);
+    console.log(`[API] 🍕 Comida: ${orderData.food}`);
     
     // Chamar nossa API de busca
     const apiUrl = `${process.env.URL || 'http://localhost:8888'}/.netlify/functions/search-restaurants`;
+    
+    console.log(`[API] 🌐 Chamando: ${apiUrl}`);
     
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -257,31 +259,42 @@ async function searchRealRestaurantsAPI(orderData) {
       })
     });
     
+    console.log(`[API] 📊 Status da resposta: ${response.status}`);
+    
     if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
+      const errorText = await response.text();
+      console.error(`[API] ❌ Erro ${response.status}: ${errorText}`);
+      throw new Error(`API Error: ${response.status} - ${errorText}`);
     }
     
     const data = await response.json();
+    console.log(`[API] 📋 Resposta:`, data);
     
     if (data.success && data.restaurants && data.restaurants.length > 0) {
       console.log(`[API] ✅ ${data.restaurants.length} restaurantes encontrados!`);
       return data.restaurants;
     } else {
-      console.log(`[API] ❌ Nenhum restaurante encontrado`);
+      console.log(`[API] ❌ Nenhum restaurante encontrado - Detalhes:`, data);
       return [];
     }
     
   } catch (error) {
-    console.error(`[API] ❌ Erro na busca:`, error);
+    console.error(`[API] ❌ Erro crítico na busca:`, error);
     return [];
   }
 }
 
 // Extrair dados do pedido de TODAS as mensagens
 function extractOrderFromMessages(messages, currentMessage) {
-  const allMessages = [...messages.map(m => m.content), currentMessage].join(' ').toLowerCase();
+  // Combinar todas as mensagens do usuário
+  const userMessages = messages
+    .filter(msg => msg.role === 'user')
+    .map(msg => msg.content)
+    .join(' ');
   
-  console.log(`[EXTRACT] 🔍 Analisando todas as mensagens...`);
+  const allUserText = `${userMessages} ${currentMessage}`.toLowerCase();
+  
+  console.log(`[EXTRACT] 🔍 Texto completo do usuário: ${allUserText.substring(0, 200)}...`);
   
   const orderData = {
     food: null,
@@ -292,19 +305,19 @@ function extractOrderFromMessages(messages, currentMessage) {
     change: null
   };
 
-  // Extrair COMIDA
+  // Extrair COMIDA - buscar na mensagem mais recente que contém comida
   const foodKeywords = ['pizza', 'hamburguer', 'hamburger', 'sushi', 'lanche', 'combo', 'sanduiche', 'pastel', 'açaí'];
+  
   for (const keyword of foodKeywords) {
-    if (allMessages.includes(keyword)) {
-      // Pegar a mensagem que contém comida
-      for (const msg of messages) {
-        if (msg.content.toLowerCase().includes(keyword)) {
-          orderData.food = msg.content;
+    if (allUserText.includes(keyword)) {
+      // Buscar nas mensagens do usuário (não nas do assistente)
+      const userMessagesWithCurrent = [...messages.filter(msg => msg.role === 'user').map(m => m.content), currentMessage];
+      
+      for (const msg of userMessagesWithCurrent) {
+        if (msg.toLowerCase().includes(keyword)) {
+          orderData.food = msg;
           break;
         }
-      }
-      if (!orderData.food && currentMessage.toLowerCase().includes(keyword)) {
-        orderData.food = currentMessage;
       }
       break;
     }
@@ -312,18 +325,19 @@ function extractOrderFromMessages(messages, currentMessage) {
 
   // Extrair ENDEREÇO E CIDADE
   const addressPatterns = [
-    /(?:rua|avenida|av\.?|r\.?)\s+[^,\n]+(?:,?\s*n?\.?\s*\d+)?(?:,\s*[^,\n]+)*(?:,\s*([^,\n]+))?/i,
+    /(?:rua|avenida|av\.?|r\.?)\s+[^,\n]+(?:,?\s*n?\.?\s*\d+)?(?:,\s*[^,\n]+)*/i,
     /entregar?\s+em:?\s*([^.\n]+)/i,
-    /endere[çc]o:?\s*([^.\n]+)/i
+    /endere[çc]o:?\s*([^.\n]+)/i,
+    /pra\s+entregar\s+em\s+([^.\n]+)/i
   ];
   
   for (const pattern of addressPatterns) {
-    const match = allMessages.match(pattern);
+    const match = allUserText.match(pattern);
     if (match) {
       orderData.address = match[0];
       
-      // Extrair cidade do endereço completo
-      const addressParts = match[0].split(',').map(part => part.trim());
+      // Extrair cidade do endereço
+      const addressText = match[0].toLowerCase();
       
       // Procurar por cidades conhecidas
       const knownCities = [
@@ -332,28 +346,27 @@ function extractOrderFromMessages(messages, currentMessage) {
         'recife', 'curitiba', 'porto alegre', 'goiânia'
       ];
       
-      for (const part of addressParts) {
-        const partLower = part.toLowerCase();
-        for (const city of knownCities) {
-          if (partLower.includes(city)) {
-            orderData.city = city.split(' ').map(word => 
-              word.charAt(0).toUpperCase() + word.slice(1)
-            ).join(' ');
+      for (const city of knownCities) {
+        if (addressText.includes(city)) {
+          orderData.city = city.split(' ').map(word => 
+            word.charAt(0).toUpperCase() + word.slice(1)
+          ).join(' ');
+          break;
+        }
+      }
+      
+      // Se não encontrou cidade conhecida, tentar última parte do endereço
+      if (!orderData.city) {
+        const parts = orderData.address.split(',').map(part => part.trim());
+        for (const part of parts.reverse()) {
+          if (part && !part.match(/\d+/) && part.length > 2 && !part.match(/^(rua|avenida|av|r)$/i)) {
+            orderData.city = part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
             break;
           }
         }
-        if (orderData.city) break;
       }
       
-      // Se não encontrou cidade conhecida, pegar a última parte do endereço
-      if (!orderData.city && addressParts.length > 2) {
-        const lastPart = addressParts[addressParts.length - 1];
-        if (lastPart && !lastPart.match(/\d/) && lastPart.length > 2) {
-          orderData.city = lastPart.charAt(0).toUpperCase() + lastPart.slice(1).toLowerCase();
-        }
-      }
-      
-      // Fallback para Volta Redonda se não conseguiu extrair
+      // Fallback para Volta Redonda
       if (!orderData.city) {
         orderData.city = 'Volta Redonda';
       }
@@ -362,28 +375,44 @@ function extractOrderFromMessages(messages, currentMessage) {
     }
   }
 
-  // Extrair TELEFONE
-  const phoneMatch = allMessages.match(/(\d{10,11})(?!\d)/);
-  if (phoneMatch) {
-    orderData.phone = phoneMatch[1];
+  // Extrair TELEFONE - melhorar regex
+  const phonePatterns = [
+    /(\d{2})\s*(\d{9})/g,  // 24 999325986
+    /(\d{2})\s*(\d{4,5})[\s-]?(\d{4})/g,  // 24 9993-25986 ou 24 99932-5986
+    /(\d{10,11})/g  // 24999325986
+  ];
+  
+  for (const pattern of phonePatterns) {
+    const matches = allUserText.match(pattern);
+    if (matches) {
+      for (const match of matches) {
+        const cleanPhone = match.replace(/\D/g, '');
+        if (cleanPhone.length >= 10 && cleanPhone.length <= 11) {
+          orderData.phone = cleanPhone;
+          console.log(`[EXTRACT] 📱 Telefone encontrado: ${cleanPhone}`);
+          break;
+        }
+      }
+      if (orderData.phone) break;
+    }
   }
 
   // Extrair PAGAMENTO
-  if (allMessages.includes('cartão') || allMessages.includes('cartao')) {
+  if (allUserText.includes('cartão') || allUserText.includes('cartao')) {
     orderData.paymentMethod = 'cartão';
-  } else if (allMessages.includes('dinheiro') || allMessages.includes('espécie')) {
+  } else if (allUserText.includes('dinheiro') || allUserText.includes('espécie')) {
     orderData.paymentMethod = 'dinheiro';
-  } else if (allMessages.includes('pix')) {
+  } else if (allUserText.includes('pix')) {
     orderData.paymentMethod = 'pix';
   }
 
   // Extrair TROCO
-  const changeMatch = allMessages.match(/troco.*?(\d+)/i);
+  const changeMatch = allUserText.match(/troco.*?(\d+)/i);
   if (changeMatch) {
     orderData.change = changeMatch[1];
   }
 
-  console.log(`[EXTRACT] 📝 Dados extraídos:`, orderData);
+  console.log(`[EXTRACT] 📝 Dados extraídos finais:`, orderData);
   return orderData;
 }
 
@@ -415,8 +444,7 @@ Podem me confirmar o valor total e o tempo de entrega?
 
 Obrigado! 🙏`;
 
-    console.log(`[PEDIDO] 📝 MENSAGEM:`);
-    console.log(orderMessage);
+    console.log(`[PEDIDO] 📝 MENSAGEM PREPARADA`);
 
     // ENVIAR VIA EVOLUTION
     const success = await sendWhatsAppReal(restaurant.whatsapp, orderMessage);
@@ -441,7 +469,7 @@ async function sendWhatsAppReal(phone, message) {
     console.log(`[WHATSAPP] 📱 ENVIANDO PARA: ${phone}`);
     
     if (!EVOLUTION_BASE_URL || !EVOLUTION_TOKEN || !EVOLUTION_INSTANCE_ID) {
-      console.error(`[WHATSAPP] ❌ VARIÁVEIS FALTANDO!`);
+      console.error(`[WHATSAPP] ❌ VARIÁVEIS DE AMBIENTE FALTANDO!`);
       return false;
     }
 
