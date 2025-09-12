@@ -242,8 +242,8 @@ async function searchRealRestaurantsAPI(orderData) {
     console.log(`[API] 📍 Cidade para busca: ${city}`);
     console.log(`[API] 🍕 Comida: ${orderData.food}`);
     
-    // Chamar nossa API de busca
-    const apiUrl = `${process.env.URL || 'http://localhost:8888'}/.netlify/functions/search-restaurants`;
+    // Chamar nossa API de busca INTERNA (mesma instância)
+    const apiUrl = `${process.env.URL || 'https://iafome.netlify.app'}/.netlify/functions/search-restaurants`;
     
     console.log(`[API] 🌐 Chamando: ${apiUrl}`);
     
@@ -286,7 +286,7 @@ async function searchRealRestaurantsAPI(orderData) {
 
 // Extrair dados do pedido de TODAS as mensagens
 function extractOrderFromMessages(messages, currentMessage) {
-  // Combinar todas as mensagens do usuário
+  // Combinar APENAS mensagens do usuário
   const userMessages = messages
     .filter(msg => msg.role === 'user')
     .map(msg => msg.content)
@@ -336,7 +336,7 @@ function extractOrderFromMessages(messages, currentMessage) {
     if (match) {
       orderData.address = match[0];
       
-      // Extrair cidade do endereço
+      // Extrair cidade do endereço - MELHORADO
       const addressText = match[0].toLowerCase();
       
       // Procurar por cidades conhecidas
@@ -355,11 +355,18 @@ function extractOrderFromMessages(messages, currentMessage) {
         }
       }
       
-      // Se não encontrou cidade conhecida, tentar última parte do endereço
+      // Se não encontrou cidade conhecida, tentar última parte LIMPA do endereço
       if (!orderData.city) {
-        const parts = orderData.address.split(',').map(part => part.trim());
+        const cleanAddress = orderData.address.replace(/pra pagar no cartão|vou pagar no cartão/gi, '');
+        const parts = cleanAddress.split(',').map(part => part.trim());
+        
         for (const part of parts.reverse()) {
-          if (part && !part.match(/\d+/) && part.length > 2 && !part.match(/^(rua|avenida|av|r)$/i)) {
+          if (part && 
+              !part.match(/\d+/) && 
+              part.length > 2 && 
+              !part.match(/^(rua|avenida|av|r|n|jardim)$/i) &&
+              !part.includes('pagar') &&
+              !part.includes('cartão')) {
             orderData.city = part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
             break;
           }
@@ -375,11 +382,11 @@ function extractOrderFromMessages(messages, currentMessage) {
     }
   }
 
-  // Extrair TELEFONE - melhorar regex
+  // Extrair TELEFONE - MELHORADO
   const phonePatterns = [
-    /(\d{2})\s*(\d{9})/g,  // 24 999325986
-    /(\d{2})\s*(\d{4,5})[\s-]?(\d{4})/g,  // 24 9993-25986 ou 24 99932-5986
-    /(\d{10,11})/g  // 24999325986
+    /(\d{2})\s+(\d{9})/g,  // 24 999325986
+    /(\d{2})\s+(\d{4,5})[\s-]?(\d{4})/g,  // 24 9993-25986 ou 24 99932-5986
+    /(\d{10,11})(?!\d)/g  // 24999325986 (não parte de número maior)
   ];
   
   for (const pattern of phonePatterns) {
@@ -423,6 +430,16 @@ async function makeOrderImmediately(orderData, restaurant) {
     console.log(`[PEDIDO] 🏪 Restaurante: ${restaurant.name}`);
     console.log(`[PEDIDO] 📱 WhatsApp: ${restaurant.whatsapp}`);
 
+    // Limpar endereço para pedido
+    let cleanAddress = orderData.address;
+    if (cleanAddress) {
+      cleanAddress = cleanAddress
+        .replace(/r em /gi, '')
+        .replace(/pra pagar no cartão|vou pagar no cartão/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
     // Criar mensagem realista
     const orderMessage = `Olá! 😊
 
@@ -432,7 +449,7 @@ Gostaria de fazer um pedido para entrega:
 ${orderData.food}
 
 📍 ENDEREÇO DE ENTREGA:
-${orderData.address}
+${cleanAddress}
 
 📱 CONTATO:
 ${orderData.phone}
