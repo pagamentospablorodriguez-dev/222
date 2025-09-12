@@ -6,17 +6,17 @@ const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 const CONFIG = {
   timeouts: {
-    google: 8000,
-    scraping: 6000,
-    general: 10000
+    google: 10000,
+    scraping: 8000,
+    general: 12000
   },
   retries: {
     api: 2,
-    scraping: 2
+    scraping: 3
   },
   delays: {
-    betweenRetries: 500,
-    betweenRequests: 300
+    betweenRetries: 1000,
+    betweenRequests: 500
   }
 };
 
@@ -110,6 +110,7 @@ async function fetchWithRetry(url, options = {}, retries = CONFIG.retries.api, t
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
       "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+      "Accept-Encoding": "gzip, deflate, br",
       "Cache-Control": "no-cache",
       ...options.headers
     },
@@ -118,7 +119,7 @@ async function fetchWithRetry(url, options = {}, retries = CONFIG.retries.api, t
 
   for (let i = 0; i <= retries; i++) {
     try {
-      console.log(`[FETCH] Tentativa ${i + 1}/${retries + 1} para ${url.substring(0, 100)}...`);
+      console.log(`[FETCH] Tentativa ${i + 1}/${retries + 1} para ${url}`);
       
       const response = await timeoutPromise(
         fetch(url, fetchOptions),
@@ -157,11 +158,11 @@ async function searchRealRestaurants(food, city, state) {
   try {
     console.log(`[REAL_SEARCH] 🔍 Iniciando busca real para ${food} em ${city}`);
     
-    // 1. CRIAR QUERY SIMPLES E EFICAZ
-    const searchQuery = `${food} delivery whatsapp ${city} ${state}`;
-    console.log(`[REAL_SEARCH] 🔍 Query: ${searchQuery}`);
+    // 1. GERAR QUERY DE BUSCA INTELIGENTE
+    const searchQuery = await generateSearchQuery(food, city, state);
+    console.log(`[REAL_SEARCH] 🔍 Query gerada: ${searchQuery}`);
 
-    // 2. BUSCAR NO GOOGLE DIRETO
+    // 2. BUSCAR NO GOOGLE DIRETO (SEM API)
     const googleResults = await searchGoogleDirect(searchQuery);
     
     if (googleResults.length === 0) {
@@ -174,7 +175,7 @@ async function searchRealRestaurants(food, city, state) {
     // 3. PROCESSAR CADA RESULTADO PARA EXTRAIR WHATSAPP
     const restaurants = [];
     
-    for (let i = 0; i < Math.min(googleResults.length, 8); i++) {
+    for (let i = 0; i < Math.min(googleResults.length, 10); i++) {
       const result = googleResults[i];
       
       try {
@@ -183,11 +184,10 @@ async function searchRealRestaurants(food, city, state) {
         // Verificar se é relevante para a cidade
         const isRelevant = result.title.toLowerCase().includes(city.toLowerCase()) ||
                           result.snippet.toLowerCase().includes(city.toLowerCase()) ||
-                          result.link.toLowerCase().includes(city.toLowerCase()) ||
-                          result.link.includes('.br'); // Sites brasileiros
+                          result.link.toLowerCase().includes(city.toLowerCase());
         
         if (!isRelevant) {
-          console.log(`[REAL_SEARCH] ⏭️ Pulando ${result.title} - não relevante`);
+          console.log(`[REAL_SEARCH] ⏭️ Pulando ${result.title} - não relevante para ${city}`);
           continue;
         }
 
@@ -220,84 +220,88 @@ async function searchRealRestaurants(food, city, state) {
   }
 }
 
-// 🔍 BUSCAR NO GOOGLE DIRETO - CORRIGIDO
+// 🧠 GERAR QUERY DE BUSCA INTELIGENTE
+async function generateSearchQuery(food, city, state) {
+  try {
+    const prompt = `
+Crie uma query de busca no Google para encontrar restaurantes REAIS que entregam "${food}" em ${city}, ${state}.
+
+REGRAS:
+- Foque em encontrar estabelecimentos COM WhatsApp
+- Use termos que tragam resultados locais
+- Inclua palavras como "delivery", "entrega", "whatsapp"
+
+EXEMPLOS:
+- Para pizza: "pizzaria delivery whatsapp ${city} ${state}"
+- Para hambúrguer: "hamburgueria lanchonete whatsapp entrega ${city}"
+- Para sushi: "sushi delivery whatsapp ${city}"
+
+Responda APENAS a query de busca, nada mais:
+`;
+
+    const result = await model.generateContent(prompt);
+    let query = result.response.text().trim();
+    
+    // Remover aspas se houver
+    query = query.replace(/['"]/g, '');
+    
+    return query;
+    
+  } catch (error) {
+    console.log(`[QUERY] ⚠️ Erro no Gemini, usando fallback`);
+    // Fallback manual
+    const foodType = food.toLowerCase().includes('pizza') ? 'pizzaria' :
+                    food.toLowerCase().includes('hambur') ? 'hamburgueria' :
+                    food.toLowerCase().includes('sushi') ? 'sushi' :
+                    food.toLowerCase().includes('lanche') ? 'lanchonete' : 
+                    food;
+    
+    return `${foodType} delivery whatsapp entrega ${city} ${state}`;
+  }
+}
+
+// 🔍 BUSCAR NO GOOGLE DIRETO (SEM PUPPETEER)
 async function searchGoogleDirect(query) {
   try {
-    console.log(`[GOOGLE] 🚀 Buscando: ${query}`);
+    console.log(`[GOOGLE] 🚀 Buscando diretamente: ${query}`);
     
-    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10&hl=pt-BR&gl=br`;
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=15&hl=pt-BR`;
     
     console.log(`[GOOGLE] 🌐 URL: ${searchUrl}`);
     
     const html = await fetchText(searchUrl, {}, 2, CONFIG.timeouts.google);
     
-    console.log(`[GOOGLE] 📄 HTML recebido: ${html.length} caracteres`);
-    
-    // USAR REGEX MAIS SIMPLES E EFICAZ
+    // Usar regex para extrair resultados (mais confiável que cheerio para Google)
     const results = [];
     
-    // Procurar por divs de resultados do Google
-    const resultRegex = /<div[^>]*class="[^"]*g[^"]*"[^>]*>[\s\S]*?<h3[^>]*>[\s\S]*?<a[^>]*href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?<\/h3>[\s\S]*?<span[^>]*>([^<]*)<\/span>[\s\S]*?<\/div>/gi;
+    // Buscar por links e títulos usando regex
+    const linkPattern = /<a href="([^"]+)"[^>]*>[\s\S]*?<h3[^>]*>([^<]+)<\/h3>/gi;
+    const snippetPattern = /<span[^>]*>([^<]+)<\/span>/gi;
     
     let match;
-    let matchCount = 0;
-    
-    while ((match = resultRegex.exec(html)) !== null && matchCount < 8) {
+    while ((match = linkPattern.exec(html)) !== null && results.length < 10) {
       const link = match[1];
       const title = match[2];
-      const snippet = match[3] || '';
       
-      // Filtrar links inúteis
-      if (link && 
-          !link.includes('google.com') && 
-          !link.includes('youtube.com') && 
-          !link.includes('facebook.com/tr') &&
-          !link.includes('instagram.com') &&
-          !link.startsWith('/search') &&
+      // Filtrar links do Google
+      if (link && !link.includes('google.com') && !link.includes('youtube.com') && 
+          !link.includes('facebook.com') && !link.includes('instagram.com') &&
           title && title.length > 5) {
         
-        // Limpar link se começar com /url?q=
-        let cleanLink = link;
-        if (link.startsWith('/url?q=')) {
-          cleanLink = decodeURIComponent(link.split('&')[0].replace('/url?q=', ''));
+        // Buscar snippet próximo
+        let snippet = '';
+        const snippetRegex = new RegExp(`${title}[\\s\\S]{0,200}?<span[^>]*>([^<]+)<\/span>`, 'i');
+        const snippetMatch = html.match(snippetRegex);
+        if (snippetMatch) {
+          snippet = snippetMatch[1];
         }
         
         results.push({
-          title: title.replace(/&[^;]+;/g, '').trim(),
-          link: cleanLink,
-          snippet: snippet.replace(/&[^;]+;/g, '').trim(),
+          title: title.replace(/&[^;]+;/g, ''), // Remove HTML entities
+          link: link.startsWith('/url?q=') ? decodeURIComponent(link.split('&')[0].replace('/url?q=', '')) : link,
+          snippet: snippet.replace(/&[^;]+;/g, ''),
           source: "google_direct"
         });
-        
-        matchCount++;
-        console.log(`[GOOGLE] ✅ Resultado ${matchCount}: ${title.substring(0, 50)}...`);
-      }
-    }
-    
-    // Se não encontrou com regex complexa, usar regex mais simples
-    if (results.length === 0) {
-      console.log(`[GOOGLE] 🔄 Tentando regex alternativa...`);
-      
-      const simpleRegex = /<a[^>]*href="([^"]+)"[^>]*><h3[^>]*>([^<]+)<\/h3><\/a>/gi;
-      
-      while ((match = simpleRegex.exec(html)) !== null && results.length < 5) {
-        const link = match[1];
-        const title = match[2];
-        
-        if (link && 
-            !link.includes('google.com') && 
-            !link.includes('youtube.com') && 
-            title && title.length > 5) {
-          
-          results.push({
-            title: title.replace(/&[^;]+;/g, '').trim(),
-            link: link.startsWith('/url?q=') ? decodeURIComponent(link.split('&')[0].replace('/url?q=', '')) : link,
-            snippet: '',
-            source: "google_simple"
-          });
-          
-          console.log(`[GOOGLE] ✅ Resultado simples: ${title.substring(0, 50)}...`);
-        }
       }
     }
     
@@ -310,43 +314,73 @@ async function searchGoogleDirect(query) {
   }
 }
 
-// 📋 EXTRAIR INFORMAÇÕES DO RESTAURANTE - OTIMIZADO
+// 📋 EXTRAIR INFORMAÇÕES DO RESTAURANTE
 async function extractRestaurantInfo(result, city, state) {
   try {
     const { title, link, snippet } = result;
     
-    console.log(`[EXTRACT] 🔍 Extraindo: ${title}`);
+    console.log(`[EXTRACT] 🔍 Extraindo de: ${title}`);
 
     let whatsapp = null;
     let address = '';
     
-    // 1. PRIMEIRO tentar extrair WhatsApp do snippet
-    if (snippet) {
-      const snippetWhatsapp = extractWhatsAppFromText(snippet);
-      if (snippetWhatsapp) {
-        whatsapp = snippetWhatsapp;
+    // Primeiro tentar extrair WhatsApp do snippet
+    const snippetNumbers = snippet.match(/(\d{2,3})[\s\-]?9?\d{4}[\s\-]?\d{4}/g);
+    if (snippetNumbers && snippetNumbers.length > 0) {
+      let number = snippetNumbers[0].replace(/\D/g, '');
+      if (number.length >= 10) {
+        if (number.length === 10) number = '55' + number;
+        if (number.length === 11 && !number.startsWith('55')) number = '55' + number;
+        whatsapp = number;
         console.log(`[EXTRACT] 📱 WhatsApp do snippet: ${whatsapp}`);
       }
     }
     
-    // 2. Se não encontrou no snippet, tentar acessar a página (com timeout menor)
-    if (!whatsapp && link) {
+    // Se não encontrou no snippet, tentar acessar a página
+    if (!whatsapp) {
       try {
-        console.log(`[EXTRACT] 🌐 Visitando: ${link.substring(0, 50)}...`);
+        console.log(`[EXTRACT] 🌐 Visitando: ${link}`);
         
         const html = await fetchText(link, {}, 1, CONFIG.timeouts.scraping);
         
         // Usar regex para buscar WhatsApp no HTML (mais rápido que cheerio)
-        whatsapp = extractWhatsAppFromText(html);
+        const whatsappPatterns = [
+          /whatsapp[:\s]*(\(?[\d\s\-\+\(\)]{10,15}\)?)/gi,
+          /wa\.me\/(\d{10,15})/gi,
+          /api\.whatsapp\.com\/send\?phone=(\d{10,15})/gi,
+          /(\d{2,3})[\s\-]?9?\d{4}[\s\-]?\d{4}/g // Padrão BR
+        ];
         
-        if (whatsapp) {
-          console.log(`[EXTRACT] 📱 WhatsApp da página: ${whatsapp}`);
+        const text = html.toLowerCase();
+        
+        for (const pattern of whatsappPatterns) {
+          const matches = text.match(pattern);
+          if (matches && matches.length > 0) {
+            let number = matches[0].replace(/\D/g, '');
+            if (number.length >= 10) {
+              // Garantir formato brasileiro
+              if (number.length === 10) number = '55' + number;
+              if (number.length === 11 && !number.startsWith('55')) number = '55' + number;
+              whatsapp = number;
+              console.log(`[EXTRACT] 📱 WhatsApp da página: ${whatsapp}`);
+              break;
+            }
+          }
         }
         
-        // Buscar endereço básico
-        const addressMatch = html.toLowerCase().match(/(rua|avenida|av\.)\s+[^<\n]{10,50}/i);
-        if (addressMatch) {
-          address = addressMatch[0].substring(0, 80);
+        // Buscar endereço
+        const addressPatterns = [
+          /endere[çc]o[:\s]*(.*?)(?:\.|,|;|<|$)/i,
+          /localiza[çc][ãa]o[:\s]*(.*?)(?:\.|,|;|<|$)/i,
+          /(rua|avenida|av\.|r\.|estrada|rodovia)[\s\.]+(.*?)(?:\.|,|;|<|$)/i
+        ];
+        
+        for (const pattern of addressPatterns) {
+          const match = text.match(pattern);
+          if (match && match[1]) {
+            address = match[1].trim().substring(0, 100);
+            break;
+          }
         }
         
       } catch (pageError) {
@@ -361,7 +395,7 @@ async function extractRestaurantInfo(result, city, state) {
     }
 
     // Gerar informações estimadas realistas
-    const estimatedInfo = generateRealisticInfoSync(title, city);
+    const estimatedInfo = await generateRealisticInfo(title, city, snippet);
     
     const restaurant = {
       name: title,
@@ -375,7 +409,7 @@ async function extractRestaurantInfo(result, city, state) {
       specialty: estimatedInfo.specialty
     };
 
-    console.log(`[EXTRACT] ✅ Restaurante OK: ${restaurant.name}`);
+    console.log(`[EXTRACT] ✅ Restaurante completo: ${restaurant.name}`);
     return restaurant;
     
   } catch (error) {
@@ -384,80 +418,49 @@ async function extractRestaurantInfo(result, city, state) {
   }
 }
 
-// 📱 EXTRAIR WHATSAPP DE TEXTO
-function extractWhatsAppFromText(text) {
-  if (!text) return null;
-  
-  const textLower = text.toLowerCase();
-  
-  // Padrões de WhatsApp em ordem de prioridade
-  const whatsappPatterns = [
-    /wa\.me\/(\d{12,15})/gi,
-    /whatsapp.*?(\d{2})\s*9?\s*\d{4}[\s-]?\d{4}/gi,
-    /whatsapp.*?(\(?\d{2}\)?\s*9?\d{4}[\s-]?\d{4})/gi,
-    /contato.*?(\d{2})\s*9\d{4}[\s-]?\d{4}/gi,
-    /pedidos.*?(\d{2})\s*9\d{4}[\s-]?\d{4}/gi,
-    /(\d{2})\s*9\d{4}[\s-]?\d{4}/g
-  ];
-  
-  for (const pattern of whatsappPatterns) {
-    const matches = textLower.match(pattern);
-    if (matches && matches.length > 0) {
-      // Extrair só os números
-      let number = matches[0].replace(/\D/g, '');
-      
-      if (number.length >= 10 && number.length <= 13) {
-        // Garantir formato brasileiro
-        if (number.length === 10) number = '55' + number;
-        if (number.length === 11 && !number.startsWith('55')) number = '55' + number;
-        
-        // Validar se é um número brasileiro válido
-        if (number.length === 13 && number.startsWith('55') && 
-            (number.charAt(4) === '9' || number.charAt(2) === '9')) {
-          console.log(`[EXTRACT] 📱 WhatsApp encontrado: ${number}`);
-          return number;
-        }
-      }
-    }
-  }
-  
-  return null;
+// 🎯 GERAR INFORMAÇÕES REALISTAS
+async function generateRealisticInfo(name, city, snippet) {
+  try {
+    const prompt = `
+Baseado no restaurante "${name}" em ${city}, gere informações REALISTAS:
+
+Contexto: ${snippet}
+
+Responda APENAS um JSON válido:
+{
+  "rating": 4.2,
+  "estimatedTime": "30-40 min",
+  "estimatedPrice": "R$ 35-55", 
+  "specialty": "Pizza delivery"
 }
 
-// 🎯 GERAR INFORMAÇÕES REALISTAS SEM IA (MAIS RÁPIDO)
-function generateRealisticInfoSync(name, city) {
-  const nameLower = name.toLowerCase();
-  
-  // Rating baseado no nome/tipo
-  let rating = 4.0 + (Math.random() * 0.8); // 4.0 - 4.8
-  
-  if (nameLower.includes('domino') || nameLower.includes('pizza hut')) rating = 4.2 + (Math.random() * 0.4);
-  if (nameLower.includes('mcdonald') || nameLower.includes('burger king')) rating = 4.0 + (Math.random() * 0.3);
-  
-  // Tempo baseado no tipo
-  let minTime = 25 + Math.floor(Math.random() * 15); // 25-40
-  let maxTime = minTime + 10 + Math.floor(Math.random() * 15); // +10-25
-  
-  // Preço baseado no tipo
-  let minPrice = 25 + Math.floor(Math.random() * 20); // 25-45
-  let maxPrice = minPrice + 15 + Math.floor(Math.random() * 25); // +15-40
-  
-  if (nameLower.includes('pizza')) {
-    minPrice = 35 + Math.floor(Math.random() * 15);
-    maxPrice = minPrice + 20 + Math.floor(Math.random() * 20);
+REGRAS:
+- Rating entre 3.8 e 4.8
+- Tempo 20-60 min
+- Preços brasileiros 2024 realistas
+- Specialty baseada no nome
+`;
+
+    const result = await model.generateContent(prompt);
+    const response = result.response.text();
+    
+    // Extrair JSON
+    const jsonMatch = response.match(/\{[\s\S]*?\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    
+    throw new Error('JSON inválido');
+    
+  } catch (error) {
+    // Fallback realista
+    return {
+      rating: (3.8 + Math.random() * 1).toFixed(1),
+      estimatedTime: `${20 + Math.floor(Math.random() * 40)}-${40 + Math.floor(Math.random() * 20)} min`,
+      estimatedPrice: `R$ ${25 + Math.floor(Math.random() * 50)}-${45 + Math.floor(Math.random() * 40)}`,
+      specialty: name.toLowerCase().includes('pizza') ? 'Pizza delivery' :
+                name.toLowerCase().includes('hambur') ? 'Hamburgueria' :
+                name.toLowerCase().includes('sushi') ? 'Sushi delivery' : 'Delivery'
+    };
   }
-  
-  // Especialidade
-  let specialty = 'Delivery';
-  if (nameLower.includes('pizza')) specialty = 'Pizza delivery';
-  else if (nameLower.includes('hambur') || nameLower.includes('burger') || nameLower.includes('lanche')) specialty = 'Hamburgueria';
-  else if (nameLower.includes('sushi')) specialty = 'Sushi delivery';
-  else if (nameLower.includes('açaí')) specialty = 'Açaí e sucos';
-  
-  return {
-    rating: rating.toFixed(1),
-    estimatedTime: `${minTime}-${maxTime} min`,
-    estimatedPrice: `R$ ${minPrice}-${maxPrice}`,
-    specialty: specialty
-  };
 }
