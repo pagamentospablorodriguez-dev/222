@@ -73,14 +73,8 @@ exports.handler = async (event, context) => {
     }
 
     console.log(`[CHAT] 🚀 NOVA ABORDAGEM: ${sessionId} - ${message}`);
-    console.log(`[CHAT] 🔧 ENV:`, {
-      gemini: !!GEMINI_API_KEY,
-      evolution: !!EVOLUTION_BASE_URL,
-      token: !!EVOLUTION_TOKEN,
-      instance: !!EVOLUTION_INSTANCE_ID
-    });
 
-    // Extrair dados diretamente das mensagens (não confiar em session)
+    // Extrair dados diretamente das mensagens
     const orderData = extractOrderFromMessages(messages, message);
     console.log(`[CHAT] 📊 Dados extraídos:`, orderData);
 
@@ -97,15 +91,15 @@ exports.handler = async (event, context) => {
     const isRestaurantChoice = /^[123]$/.test(message.trim());
     const previouslySearchedRestaurants = messages.some(msg => 
       msg.role === 'assistant' && 
-      (msg.content.includes('Encontrei') || msg.content.includes('opções')) &&
+      (msg.content.includes('Encontrei') || msg.content.includes('restaurantes')) &&
       msg.content.match(/[123]\./g)
     );
 
     if (isRestaurantChoice && previouslySearchedRestaurants) {
       console.log(`[CHAT] 🎯 CLIENTE ESCOLHEU RESTAURANTE: Opção ${message}`);
       
-      // BUSCAR RESTAURANTES NOVAMENTE (já que não persistem)
-      const restaurants = await searchRealRestaurants(orderData);
+      // BUSCAR RESTAURANTES NOVAMENTE VIA API REAL
+      const restaurants = await searchRealRestaurantsAPI(orderData);
       
       if (restaurants && restaurants.length > 0) {
         const choice = parseInt(message.trim()) - 1;
@@ -122,7 +116,7 @@ exports.handler = async (event, context) => {
               statusCode: 200,
               headers,
               body: JSON.stringify({
-                message: `✅ PEDIDO ENVIADO para ${selectedRestaurant.name}!\n\n📞 ${selectedRestaurant.phone}\n📍 ${selectedRestaurant.address}\n\n⏳ Aguardando confirmação...\n💰 ${selectedRestaurant.estimatedPrice}\n⏰ ${selectedRestaurant.estimatedTime}\n\nVou avisar quando responderem! 📱`,
+                message: `✅ PEDIDO ENVIADO para ${selectedRestaurant.name}!\n\n📞 ${selectedRestaurant.whatsapp}\n📍 ${selectedRestaurant.address}\n\n⏳ Aguardando confirmação...\n💰 ${selectedRestaurant.estimatedPrice}\n⏰ ${selectedRestaurant.estimatedTime}\n\nVou avisar quando responderem! 📱`,
                 sessionId: sessionId
               })
             };
@@ -160,26 +154,26 @@ exports.handler = async (event, context) => {
 
     console.log(`[CHAT] 💬 Resposta IA: ${aiMessage}`);
 
-    // 🚀 SE IA DISSE QUE VAI BUSCAR, BUSCAR AGORA MESMO E RETORNAR OPÇÕES!
+    // 🚀 SE IA DISSE QUE VAI BUSCAR, BUSCAR AGORA MESMO VIA API REAL!
     if (hasAllInfo && (aiMessage.includes('buscando') || aiMessage.includes('Buscando') ||
         aiMessage.includes('procurando') || aiMessage.includes('encontrando'))) {
       
-      console.log(`[CHAT] 🔍 IA DISSE QUE VAI BUSCAR - FAZENDO AGORA!`);
+      console.log(`[CHAT] 🔍 IA DISSE QUE VAI BUSCAR - FAZENDO VIA API REAL!`);
       
-      const restaurants = await searchRealRestaurants(orderData);
+      const restaurants = await searchRealRestaurantsAPI(orderData);
       
       if (restaurants && restaurants.length > 0) {
         let restaurantsList = "🍕 Encontrei restaurantes REAIS na sua região:\n\n";
         restaurants.forEach((rest, index) => {
           restaurantsList += `${index + 1}. **${rest.name}**\n`;
-          restaurantsList += `   📞 ${rest.phone}\n`;
+          restaurantsList += `   📞 ${rest.whatsapp}\n`;
           restaurantsList += `   📍 ${rest.address}\n`;
           restaurantsList += `   ⭐ ${rest.rating}/5 • ${rest.estimatedTime}\n`;
           restaurantsList += `   💰 ${rest.estimatedPrice}\n\n`;
         });
         restaurantsList += "Digite o NÚMERO da sua escolha (1, 2 ou 3)! 🎯";
         
-        console.log(`[CHAT] 🎉 RETORNANDO OPÇÕES DIRETAMENTE!`);
+        console.log(`[CHAT] 🎉 RETORNANDO OPÇÕES REAIS DIRETAMENTE!`);
         
         return {
           statusCode: 200,
@@ -194,7 +188,7 @@ exports.handler = async (event, context) => {
           statusCode: 200,
           headers,
           body: JSON.stringify({
-            message: "😔 Não encontrei restaurantes na sua região. Pode tentar outro tipo de comida?",
+            message: "😔 Não encontrei restaurantes com WhatsApp na sua região. Pode tentar outro tipo de comida?",
             sessionId: sessionId
           })
         };
@@ -219,6 +213,68 @@ exports.handler = async (event, context) => {
     };
   }
 };
+
+// 🔍 BUSCAR RESTAURANTES VIA API REAL
+async function searchRealRestaurantsAPI(orderData) {
+  try {
+    console.log(`[API] 🔍 BUSCANDO VIA API REAL...`);
+    
+    // Extrair cidade do endereço
+    let city = 'Volta Redonda';
+    if (orderData.address) {
+      const addressParts = orderData.address.split(',');
+      if (addressParts.length > 1) {
+        city = addressParts[addressParts.length - 1].trim();
+      } else {
+        // Tentar extrair cidade de outra forma
+        const cityKeywords = ['volta redonda', 'rio de janeiro', 'niterói', 'são paulo', 'belo horizonte'];
+        for (const keyword of cityKeywords) {
+          if (orderData.address.toLowerCase().includes(keyword)) {
+            city = keyword.split(' ').map(word => 
+              word.charAt(0).toUpperCase() + word.slice(1)
+            ).join(' ');
+            break;
+          }
+        }
+      }
+    }
+    
+    console.log(`[API] 📍 Cidade extraída: ${city}`);
+    
+    // Chamar nossa API de busca
+    const apiUrl = `${process.env.URL || 'http://localhost:8888'}/.netlify/functions/search-restaurants`;
+    
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        food: orderData.food,
+        city: city,
+        state: 'RJ'
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.success && data.restaurants && data.restaurants.length > 0) {
+      console.log(`[API] ✅ ${data.restaurants.length} restaurantes encontrados!`);
+      return data.restaurants;
+    } else {
+      console.log(`[API] ❌ Nenhum restaurante encontrado`);
+      return [];
+    }
+    
+  } catch (error) {
+    console.error(`[API] ❌ Erro na busca:`, error);
+    return [];
+  }
+}
 
 // Extrair dados do pedido de TODAS as mensagens
 function extractOrderFromMessages(messages, currentMessage) {
@@ -292,113 +348,12 @@ function extractOrderFromMessages(messages, currentMessage) {
   return orderData;
 }
 
-// 🔍 BUSCAR RESTAURANTES REAIS
-async function searchRealRestaurants(orderData) {
-  try {
-    console.log(`[BUSCA] 🔍 BUSCANDO RESTAURANTES REAIS...`);
-    
-    // Extrair cidade
-    const city = orderData.address ? 
-      orderData.address.split(',').pop()?.trim() || 'Volta Redonda' : 
-      'Volta Redonda';
-    
-    console.log(`[BUSCA] 📍 Cidade: ${city}`);
-    console.log(`[BUSCA] 🍕 Comida: ${orderData.food}`);
-
-    // Prompt específico para restaurantes reais
-    const searchPrompt = `
-Encontre 3 restaurantes REAIS que entregam pizza em ${city}, RJ.
-
-INSTRUÇÕES CRÍTICAS:
-- Use APENAS estabelecimentos que REALMENTE existem
-- Priorize redes conhecidas (Domino's, Pizza Hut, Pizzaria Real)
-- DDD de ${city.includes('Volta Redonda') ? '24' : '21'}
-- Preços realistas 2024
-- Números de telefone reais
-
-RESPONDA APENAS JSON:
-[
-  {
-    "name": "Nome Real",
-    "phone": "5524XXXXXXXXX", 
-    "address": "Endereço real em ${city}",
-    "rating": 4.5,
-    "estimatedTime": "30-40 min",
-    "estimatedPrice": "R$ 35-55",
-    "specialty": "Pizza delivery"
-  }
-]
-
-Crítico: JSON puro, sem texto adicional!
-`;
-
-    const result = await model.generateContent(searchPrompt);
-    const response = result.response.text();
-    
-    console.log(`[BUSCA] 📝 Resposta Gemini: ${response.substring(0, 300)}...`);
-
-    // Extrair JSON
-    const jsonMatch = response.match(/\[\s*{[\s\S]*?}\s*\]/);
-    if (jsonMatch) {
-      const restaurants = JSON.parse(jsonMatch[0]);
-      
-      // Validar
-      if (Array.isArray(restaurants) && restaurants.length > 0) {
-        restaurants.forEach((rest, i) => {
-          if (!rest.phone || rest.phone.length < 10) {
-            rest.phone = `5524999${String(Math.random()).slice(2, 8)}`;
-          }
-        });
-        
-        console.log(`[BUSCA] ✅ ${restaurants.length} restaurantes encontrados!`);
-        return restaurants;
-      }
-    }
-    
-    throw new Error('JSON inválido');
-    
-  } catch (error) {
-    console.log(`[BUSCA] ⚠️ Erro: ${error.message}, usando fallback...`);
-    
-    // Fallback realista
-    return [
-      {
-        name: "Domino's Pizza Volta Redonda",
-        phone: "5524987654321",
-        address: "Vila Santa Cecília, Volta Redonda, RJ",
-        rating: 4.3,
-        estimatedTime: "30-40 min",
-        estimatedPrice: "R$ 45-65",
-        specialty: "Pizza americana"
-      },
-      {
-        name: "Pizza Hut Volta Redonda",
-        phone: "5524976543210",
-        address: "Centro, Volta Redonda, RJ", 
-        rating: 4.1,
-        estimatedTime: "35-45 min",
-        estimatedPrice: "R$ 50-70",
-        specialty: "Pizza tradicional"
-      },
-      {
-        name: "Pizzaria do Zé",
-        phone: "5524965432109",
-        address: "Jardim Amália, Volta Redonda, RJ",
-        rating: 4.5,
-        estimatedTime: "25-35 min",
-        estimatedPrice: "R$ 35-55", 
-        specialty: "Pizza artesanal"
-      }
-    ];
-  }
-}
-
 // 📞 FAZER PEDIDO IMEDIATAMENTE
 async function makeOrderImmediately(orderData, restaurant) {
   try {
     console.log(`[PEDIDO] 📞 FAZENDO PEDIDO REAL AGORA!`);
     console.log(`[PEDIDO] 🏪 Restaurante: ${restaurant.name}`);
-    console.log(`[PEDIDO] 📱 Telefone: ${restaurant.phone}`);
+    console.log(`[PEDIDO] 📱 WhatsApp: ${restaurant.whatsapp}`);
 
     // Criar mensagem realista
     const orderMessage = `Olá! 😊
@@ -425,7 +380,7 @@ Obrigado! 🙏`;
     console.log(orderMessage);
 
     // ENVIAR VIA EVOLUTION
-    const success = await sendWhatsAppReal(restaurant.phone, orderMessage);
+    const success = await sendWhatsAppReal(restaurant.whatsapp, orderMessage);
     
     if (success) {
       console.log(`[PEDIDO] ✅ PEDIDO ENVIADO COM SUCESSO!`);
