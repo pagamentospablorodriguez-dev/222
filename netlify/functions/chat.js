@@ -138,6 +138,7 @@ exports.handler = async (event, context) => {
     let context = SYSTEM_PROMPT + "\n\n=== DADOS COLETADOS ===\n";
     context += `Comida: ${orderData.food || 'Não informado'}\n`;
     context += `Endereço: ${orderData.address || 'Não informado'}\n`;
+    context += `Cidade: ${orderData.city || 'Não informado'}\n`;
     context += `WhatsApp: ${orderData.phone || 'Não informado'}\n`;
     context += `Pagamento: ${orderData.paymentMethod || 'Não informado'}\n`;
     context += `Troco: ${orderData.change || 'Não informado'}\n\n`;
@@ -188,7 +189,7 @@ exports.handler = async (event, context) => {
           statusCode: 200,
           headers,
           body: JSON.stringify({
-            message: "😔 Não encontrei restaurantes com WhatsApp na sua região. Pode tentar outro tipo de comida?",
+            message: "😔 Não encontrei restaurantes com WhatsApp na sua região. Pode tentar outro tipo de comida ou cidade?",
             sessionId: sessionId
           })
         };
@@ -285,13 +286,14 @@ function extractOrderFromMessages(messages, currentMessage) {
   const orderData = {
     food: null,
     address: null,
+    city: null,
     phone: null,
     paymentMethod: null,
     change: null
   };
 
   // Extrair COMIDA
-  const foodKeywords = ['pizza', 'hamburguer', 'sushi', 'lanche', 'combo'];
+  const foodKeywords = ['pizza', 'hamburguer', 'hamburger', 'sushi', 'lanche', 'combo', 'sanduiche', 'pastel', 'açaí'];
   for (const keyword of foodKeywords) {
     if (allMessages.includes(keyword)) {
       // Pegar a mensagem que contém comida
@@ -308,23 +310,60 @@ function extractOrderFromMessages(messages, currentMessage) {
     }
   }
 
-  // Extrair ENDEREÇO
+  // Extrair ENDEREÇO E CIDADE
   const addressPatterns = [
-    /rua\s+[^,]+,?\s*n?\s*\d+/i,
-    /avenida\s+[^,]+,?\s*\d+/i,
-    /entregar\s+em[^.]+/i
+    /(?:rua|avenida|av\.?|r\.?)\s+[^,\n]+(?:,?\s*n?\.?\s*\d+)?(?:,\s*[^,\n]+)*(?:,\s*([^,\n]+))?/i,
+    /entregar?\s+em:?\s*([^.\n]+)/i,
+    /endere[çc]o:?\s*([^.\n]+)/i
   ];
   
   for (const pattern of addressPatterns) {
     const match = allMessages.match(pattern);
     if (match) {
       orderData.address = match[0];
+      
+      // Extrair cidade do endereço completo
+      const addressParts = match[0].split(',').map(part => part.trim());
+      
+      // Procurar por cidades conhecidas
+      const knownCities = [
+        'volta redonda', 'rio de janeiro', 'niterói', 'são paulo', 
+        'belo horizonte', 'brasília', 'salvador', 'fortaleza',
+        'recife', 'curitiba', 'porto alegre', 'goiânia'
+      ];
+      
+      for (const part of addressParts) {
+        const partLower = part.toLowerCase();
+        for (const city of knownCities) {
+          if (partLower.includes(city)) {
+            orderData.city = city.split(' ').map(word => 
+              word.charAt(0).toUpperCase() + word.slice(1)
+            ).join(' ');
+            break;
+          }
+        }
+        if (orderData.city) break;
+      }
+      
+      // Se não encontrou cidade conhecida, pegar a última parte do endereço
+      if (!orderData.city && addressParts.length > 2) {
+        const lastPart = addressParts[addressParts.length - 1];
+        if (lastPart && !lastPart.match(/\d/) && lastPart.length > 2) {
+          orderData.city = lastPart.charAt(0).toUpperCase() + lastPart.slice(1).toLowerCase();
+        }
+      }
+      
+      // Fallback para Volta Redonda se não conseguiu extrair
+      if (!orderData.city) {
+        orderData.city = 'Volta Redonda';
+      }
+      
       break;
     }
   }
 
   // Extrair TELEFONE
-  const phoneMatch = allMessages.match(/(\d{10,11})/);
+  const phoneMatch = allMessages.match(/(\d{10,11})(?!\d)/);
   if (phoneMatch) {
     orderData.phone = phoneMatch[1];
   }
