@@ -1,5 +1,4 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const cheerio = require('cheerio');
 
 const GEMINI_API_KEY = process.env.VITE_GOOGLE_AI_API_KEY;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -53,7 +52,7 @@ exports.handler = async (event, context) => {
 
     console.log(`[SEARCH] 🔍 Buscando ${food} em ${city}, ${state}`);
 
-    // BUSCAR RESTAURANTES REAIS VIA GOOGLE
+    // BUSCAR RESTAURANTES REAIS
     const restaurants = await searchRealRestaurants(food, city, state);
     
     if (restaurants.length === 0) {
@@ -154,7 +153,7 @@ async function fetchText(url, options = {}, retries = CONFIG.retries.scraping, t
   }
 }
 
-// 🔍 BUSCAR RESTAURANTES REAIS
+// 🔍 BUSCAR RESTAURANTES REAIS NO GOOGLE
 async function searchRealRestaurants(food, city, state) {
   try {
     console.log(`[REAL_SEARCH] 🔍 Iniciando busca real para ${food} em ${city}`);
@@ -163,8 +162,8 @@ async function searchRealRestaurants(food, city, state) {
     const searchQuery = await generateSearchQuery(food, city, state);
     console.log(`[REAL_SEARCH] 🔍 Query gerada: ${searchQuery}`);
 
-    // 2. BUSCAR NO GOOGLE VIA CUSTOM SEARCH API
-    const googleResults = await searchGoogleCustom(searchQuery);
+    // 2. BUSCAR NO GOOGLE DIRETO (SEM API)
+    const googleResults = await searchGoogleDirect(searchQuery);
     
     if (googleResults.length === 0) {
       console.log(`[REAL_SEARCH] ❌ Nenhum resultado no Google`);
@@ -198,6 +197,9 @@ async function searchRealRestaurants(food, city, state) {
         if (restaurant && restaurant.whatsapp) {
           restaurants.push(restaurant);
           console.log(`[REAL_SEARCH] ✅ Adicionado: ${restaurant.name}`);
+          
+          // Parar se já temos 3 restaurantes
+          if (restaurants.length >= 3) break;
         }
         
         // Delay entre processamentos
@@ -258,107 +260,56 @@ Responda APENAS a query de busca, nada mais:
   }
 }
 
-// 🔍 BUSCAR NO GOOGLE VIA CUSTOM SEARCH API
-async function searchGoogleCustom(query) {
+// 🔍 BUSCAR NO GOOGLE DIRETO (SEM PUPPETEER)
+async function searchGoogleDirect(query) {
   try {
-    console.log(`[GOOGLE] 🚀 Buscando: ${query}`);
+    console.log(`[GOOGLE] 🚀 Buscando diretamente: ${query}`);
     
-    const googleKey = process.env.GOOGLE_API_KEY;
-    const cx = process.env.GOOGLE_CX;
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=15&hl=pt-BR`;
     
-    if (!googleKey || !cx) {
-      console.log("[GOOGLE] API não configurada, usando fallback");
-      return await searchGoogleFallback(query);
-    }
-    
-    const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(query)}&key=${googleKey}&cx=${cx}&num=10`;
-    
-    const response = await fetchWithRetry(url, {}, 1, CONFIG.timeouts.google);
-    const data = await response.json();
-    
-    const items = data.items || [];
-    
-    console.log(`[GOOGLE] ✅ ${items.length} resultados encontrados`);
-    
-    return items.map(item => ({
-      title: item.title,
-      link: item.link,
-      snippet: item.snippet || "",
-      source: "google_api"
-    }));
-    
-  } catch (error) {
-    console.log(`[GOOGLE] ❌ Erro na API: ${error.message}`);
-    return await searchGoogleFallback(query);
-  }
-}
-
-// 🔍 FALLBACK: BUSCA DIRETA NO GOOGLE (SEM API)
-async function searchGoogleFallback(query) {
-  try {
-    console.log(`[GOOGLE_FALLBACK] 🔍 Buscando diretamente: ${query}`);
-    
-    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10`;
+    console.log(`[GOOGLE] 🌐 URL: ${searchUrl}`);
     
     const html = await fetchText(searchUrl, {}, 2, CONFIG.timeouts.google);
-    const $ = cheerio.load(html);
     
+    // Usar regex para extrair resultados (mais confiável que cheerio para Google)
     const results = [];
     
-    // Buscar por diferentes seletores de resultados do Google
-    const resultSelectors = [
-      'div[data-ved] h3',
-      '.g h3',
-      '[data-header-feature] h3',
-      'div.g div[data-ved] h3'
-    ];
+    // Buscar por links e títulos usando regex
+    const linkPattern = /<a href="([^"]+)"[^>]*>[\s\S]*?<h3[^>]*>([^<]+)<\/h3>/gi;
+    const snippetPattern = /<span[^>]*>([^<]+)<\/span>/gi;
     
-    let elements = [];
-    for (const selector of resultSelectors) {
-      elements = $(selector);
-      if (elements.length > 0) break;
+    let match;
+    while ((match = linkPattern.exec(html)) !== null && results.length < 10) {
+      const link = match[1];
+      const title = match[2];
+      
+      // Filtrar links do Google
+      if (link && !link.includes('google.com') && !link.includes('youtube.com') && 
+          !link.includes('facebook.com') && !link.includes('instagram.com') &&
+          title && title.length > 5) {
+        
+        // Buscar snippet próximo
+        let snippet = '';
+        const snippetRegex = new RegExp(`${title}[\\s\\S]{0,200}?<span[^>]*>([^<]+)<\/span>`, 'i');
+        const snippetMatch = html.match(snippetRegex);
+        if (snippetMatch) {
+          snippet = snippetMatch[1];
+        }
+        
+        results.push({
+          title: title.replace(/&[^;]+;/g, ''), // Remove HTML entities
+          link: link.startsWith('/url?q=') ? decodeURIComponent(link.split('&')[0].replace('/url?q=', '')) : link,
+          snippet: snippet.replace(/&[^;]+;/g, ''),
+          source: "google_direct"
+        });
+      }
     }
     
-    console.log(`[GOOGLE_FALLBACK] Encontrados ${elements.length} elementos`);
-    
-    elements.each((index, element) => {
-      if (index >= 10) return false; // Máximo 10 resultados
-      
-      try {
-        const titleElement = $(element);
-        const linkElement = titleElement.closest('a') || titleElement.parent().find('a').first();
-        const containerElement = titleElement.closest('.g') || titleElement.closest('[data-ved]');
-        
-        const title = titleElement.text().trim();
-        const link = linkElement.attr('href');
-        
-        if (title && link && !link.includes('google.com')) {
-          // Extrair snippet/descrição
-          let snippet = '';
-          if (containerElement.length > 0) {
-            const snippetEl = containerElement.find('span:not([class])').first() || 
-                             containerElement.find('.st').first() ||
-                             containerElement.find('[data-sncf]').first();
-            snippet = snippetEl.text().trim() || '';
-          }
-          
-          results.push({
-            title,
-            link,
-            snippet,
-            source: "google_scraping"
-          });
-        }
-      } catch (e) {
-        console.error(`[GOOGLE_FALLBACK] Erro ao processar elemento ${index}:`, e);
-      }
-    });
-    
-    console.log(`[GOOGLE_FALLBACK] ✅ ${results.length} resultados extraídos`);
+    console.log(`[GOOGLE] ✅ ${results.length} resultados extraídos`);
     return results;
     
   } catch (error) {
-    console.log(`[GOOGLE_FALLBACK] ❌ Erro: ${error.message}`);
+    console.log(`[GOOGLE] ❌ Erro: ${error.message}`);
     return [];
   }
 }
@@ -370,79 +321,80 @@ async function extractRestaurantInfo(result, city, state) {
     
     console.log(`[EXTRACT] 🔍 Extraindo de: ${title}`);
 
-    // Tentar visitar a página para buscar WhatsApp
     let whatsapp = null;
     let address = '';
-    let pageText = '';
     
-    try {
-      console.log(`[EXTRACT] 🌐 Visitando: ${link}`);
-      
-      const html = await fetchText(link, {}, 1, CONFIG.timeouts.scraping);
-      const $ = cheerio.load(html);
-      
-      // Extrair texto da página
-      pageText = $("body").text().toLowerCase();
-      
-      // Buscar números de WhatsApp na página
-      const whatsappPatterns = [
-        /whatsapp[:\s]*(\(?[\d\s\-\+\(\)]{10,15}\)?)/gi,
-        /wa\.me\/(\d{10,15})/gi,
-        /api\.whatsapp\.com\/send\?phone=(\d{10,15})/gi,
-        /(\d{2,3})[\s\-]?9?\d{4}[\s\-]?\d{4}/g // Padrão BR
-      ];
-      
-      for (const pattern of whatsappPatterns) {
-        const matches = pageText.match(pattern) || html.match(pattern);
-        if (matches && matches.length > 0) {
-          let number = matches[0].replace(/\D/g, '');
-          if (number.length >= 10) {
-            // Garantir formato brasileiro
-            if (number.length === 10) number = '55' + number;
-            if (number.length === 11 && !number.startsWith('55')) number = '55' + number;
-            whatsapp = number;
+    // Primeiro tentar extrair WhatsApp do snippet
+    const snippetNumbers = snippet.match(/(\d{2,3})[\s\-]?9?\d{4}[\s\-]?\d{4}/g);
+    if (snippetNumbers && snippetNumbers.length > 0) {
+      let number = snippetNumbers[0].replace(/\D/g, '');
+      if (number.length >= 10) {
+        if (number.length === 10) number = '55' + number;
+        if (number.length === 11 && !number.startsWith('55')) number = '55' + number;
+        whatsapp = number;
+        console.log(`[EXTRACT] 📱 WhatsApp do snippet: ${whatsapp}`);
+      }
+    }
+    
+    // Se não encontrou no snippet, tentar acessar a página
+    if (!whatsapp) {
+      try {
+        console.log(`[EXTRACT] 🌐 Visitando: ${link}`);
+        
+        const html = await fetchText(link, {}, 1, CONFIG.timeouts.scraping);
+        
+        // Usar regex para buscar WhatsApp no HTML (mais rápido que cheerio)
+        const whatsappPatterns = [
+          /whatsapp[:\s]*(\(?[\d\s\-\+\(\)]{10,15}\)?)/gi,
+          /wa\.me\/(\d{10,15})/gi,
+          /api\.whatsapp\.com\/send\?phone=(\d{10,15})/gi,
+          /(\d{2,3})[\s\-]?9?\d{4}[\s\-]?\d{4}/g // Padrão BR
+        ];
+        
+        const text = html.toLowerCase();
+        
+        for (const pattern of whatsappPatterns) {
+          const matches = text.match(pattern);
+          if (matches && matches.length > 0) {
+            let number = matches[0].replace(/\D/g, '');
+            if (number.length >= 10) {
+              // Garantir formato brasileiro
+              if (number.length === 10) number = '55' + number;
+              if (number.length === 11 && !number.startsWith('55')) number = '55' + number;
+              whatsapp = number;
+              console.log(`[EXTRACT] 📱 WhatsApp da página: ${whatsapp}`);
+              break;
+            }
+          }
+        }
+        
+        // Buscar endereço
+        const addressPatterns = [
+          /endere[çc]o[:\s]*(.*?)(?:\.|,|;|<|$)/i,
+          /localiza[çc][ãa]o[:\s]*(.*?)(?:\.|,|;|<|$)/i,
+          /(rua|avenida|av\.|r\.|estrada|rodovia)[\s\.]+(.*?)(?:\.|,|;|<|$)/i
+        ];
+        
+        for (const pattern of addressPatterns) {
+          const match = text.match(pattern);
+          if (match && match[1]) {
+            address = match[1].trim().substring(0, 100);
             break;
           }
         }
-      }
-      
-      // Buscar endereço
-      const addressPatterns = [
-        /endere[çc]o[:\s]*(.*?)(?:\.|,|;|<|$)/i,
-        /localiza[çc][ãa]o[:\s]*(.*?)(?:\.|,|;|<|$)/i,
-        /(rua|avenida|av\.|r\.|estrada|rodovia)[\s\.]+(.*?)(?:\.|,|;|<|$)/i
-      ];
-      
-      for (const pattern of addressPatterns) {
-        const match = pageText.match(pattern);
-        if (match && match[1]) {
-          address = match[1].trim().substring(0, 100);
-          break;
-        }
-      }
-      
-    } catch (pageError) {
-      console.log(`[EXTRACT] ⚠️ Erro ao visitar página: ${pageError.message}`);
-      
-      // Tentar extrair do snippet
-      const snippetNumbers = snippet.match(/(\d{2,3})[\s\-]?9?\d{4}[\s\-]?\d{4}/g);
-      if (snippetNumbers && snippetNumbers.length > 0) {
-        let number = snippetNumbers[0].replace(/\D/g, '');
-        if (number.length >= 10) {
-          if (number.length === 10) number = '55' + number;
-          if (number.length === 11 && !number.startsWith('55')) number = '55' + number;
-          whatsapp = number;
-        }
+        
+      } catch (pageError) {
+        console.log(`[EXTRACT] ⚠️ Erro ao visitar página: ${pageError.message}`);
       }
     }
 
-    // Se não encontrou WhatsApp, pular
+    // Se AINDA não encontrou WhatsApp, pular este restaurante
     if (!whatsapp) {
       console.log(`[EXTRACT] ❌ Sem WhatsApp: ${title}`);
       return null;
     }
 
-    // Gerar informações estimadas realistas usando IA
+    // Gerar informações estimadas realistas
     const estimatedInfo = await generateRealisticInfo(title, city, snippet);
     
     const restaurant = {
