@@ -1,5 +1,4 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-import * as cheerio from "cheerio";
 
 const GEMINI_API_KEY = process.env.VITE_GOOGLE_AI_API_KEY;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -198,8 +197,8 @@ async function searchRealRestaurants(food, city, state) {
           continue;
         }
 
-        // Extrair informações do restaurante usando Cheerio
-        const restaurant = await extractRestaurantInfoWithCheerio(result, city, state);
+        // Extrair informações do restaurante usando regex simples
+        const restaurant = await extractRestaurantInfoSimple(result, city, state);
         
         if (restaurant && restaurant.whatsapp) {
           restaurants.push(restaurant);
@@ -274,8 +273,8 @@ async function searchGoogleAPI(food, city, state) {
   }
 }
 
-// 📋 EXTRAIR INFORMAÇÕES DO RESTAURANTE USANDO CHEERIO (IGUAL AO CÓDIGO ANTIGO)
-async function extractRestaurantInfoWithCheerio(result, city, state) {
+// 📋 EXTRAIR INFORMAÇÕES DO RESTAURANTE SEM CHEERIO (MAIS SIMPLES)
+async function extractRestaurantInfoSimple(result, city, state) {
   try {
     const { title, link, snippet } = result;
     
@@ -294,16 +293,20 @@ async function extractRestaurantInfoWithCheerio(result, city, state) {
       }
     }
     
-    // 2. Se não encontrou no snippet, tentar acessar a página com Cheerio
+    // 2. Se não encontrou no snippet, tentar acessar a página
     if (!whatsapp && link) {
       try {
         console.log(`[EXTRACT] 🌐 Visitando: ${link.substring(0, 50)}...`);
         
         const html = await fetchText(link, {}, 1, CONFIG.timeouts.scraping);
-        const $ = cheerio.load(html);
         
-        // Extrair texto da página
-        pageText = $("body").text().replace(/\s+/g, " ").trim().substring(0, 3000);
+        // Extrair texto da página usando regex simples
+        pageText = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+                      .replace(/<[^>]+>/g, ' ')
+                      .replace(/\s+/g, ' ')
+                      .trim()
+                      .substring(0, 3000);
         
         // Buscar WhatsApp no texto da página
         whatsapp = extractWhatsAppFromText(pageText);
@@ -312,29 +315,10 @@ async function extractRestaurantInfoWithCheerio(result, city, state) {
           console.log(`[EXTRACT] 📱 WhatsApp da página: ${whatsapp}`);
         }
         
-        // Buscar endereço usando seletores específicos
-        const addressSelectors = [
-          '[data-address]',
-          '.address',
-          '.endereco',
-          '*[class*="address"]',
-          '*[class*="endereco"]'
-        ];
-        
-        for (const selector of addressSelectors) {
-          const addressText = $(selector).first().text().trim();
-          if (addressText && addressText.length > 10) {
-            address = addressText.substring(0, 80);
-            break;
-          }
-        }
-        
-        // Se não encontrou endereço específico, buscar no texto geral
-        if (!address) {
-          const addressMatch = pageText.toLowerCase().match(/(rua|avenida|av\.)\s+[^<\n]{10,50}/i);
-          if (addressMatch) {
-            address = addressMatch[0].substring(0, 80);
-          }
+        // Buscar endereço usando regex
+        const addressMatch = pageText.toLowerCase().match(/(rua|avenida|av\.)\s+[^<\n]{10,50}/i);
+        if (addressMatch) {
+          address = addressMatch[0].substring(0, 80);
         }
         
       } catch (pageError) {
