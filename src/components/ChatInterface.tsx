@@ -196,7 +196,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
               <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center shadow-2xl animate-glow">
 
                 
-                <img src="/ia fome.png">
+                <img src="/ia fome.png" />
 
              
               </div>
