@@ -183,20 +183,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
             transition={{ delay: 0.2, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
             className="mb-6 sm:mb-8"
           >
+
+
+            
             <motion.div
               className="inline-flex items-center justify-center mb-6"
               animate={{ y: [0, -4, 0] }}
               transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
             >
-              <div className="relative w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-primary-500 via-accent-500 to-secondary-500 rounded-2xl flex items-center justify-center shadow-2xl animate-glow">
-                <ChefHat className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
-                <motion.div
-                  className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-br from-accent-400 to-secondary-500 rounded-full flex items-center justify-center shadow-lg"
-                  animate={{ rotate: [0, 10, -10, 0] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                >
-                  <Pizza className="w-3 h-3 text-white" />
-                </motion.div>
+
+              
+              <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center shadow-2xl animate-glow">
+
+                
+                <img src="/ia fome.png">
+
+             
               </div>
             </motion.div>
 
