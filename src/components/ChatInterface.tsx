@@ -235,7 +235,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
               </p>
             </div>
             <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
-              Seus dados são seguros e você paga quando chegar
+              Seus dados estão seguros e você paga quando chegar
             </p>
           </motion.div>
 
