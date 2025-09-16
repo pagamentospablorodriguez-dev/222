@@ -16,11 +16,11 @@ const CONFIG = {
   },
   delays: {
     betweenRetries: 1000,
-    betweenRequests: 500
+    betweenRequests: 800 // Aumentado para evitar 429
   }
 };
 
-// 🏆 ESTABELECIMENTOS POPULARES POR CATEGORIA (PRIORIDADE)
+// 🏆 ESTABELECIMENTOS POPULARES POR CATEGORIA
 const POPULAR_ESTABLISHMENTS = {
   pizza: [
     'dominos', "domino's", 'pizza hut', 'telepizza', 'pizza express', 
@@ -44,25 +44,35 @@ const POPULAR_ESTABLISHMENTS = {
   ]
 };
 
-// 🆕 NÚMEROS REAIS DE VOLTA REDONDA (DDD 24) PARA FALLBACK
-const VOLTA_REDONDA_FALLBACK_NUMBERS = {
-  pizza: [
-    { name: "Domino's Pizza Volta Redonda", whatsapp: "5524999123456", verified: true },
-    { name: "Chicago Pizza Bar", whatsapp: "5524998729825", verified: true }, // Este já está correto
-    { name: "Fornalha Pizzaria", whatsapp: "5524999876543", verified: true },
-    { name: "Pizza Hut Volta Redonda", whatsapp: "5524999654321", verified: true },
-    { name: "Tony Montana Pizzaria", whatsapp: "5524988765432", verified: true }
-  ],
-  hamburguer: [
-    { name: "McDonald's Volta Redonda", whatsapp: "5524999111222", verified: true },
-    { name: "Burger King VR", whatsapp: "5524999333444", verified: true },
-    { name: "Bob's Volta Redonda", whatsapp: "5524999555666", verified: true }
-  ],
-  sushi: [
-    { name: "Temakeria Volta Redonda", whatsapp: "5524999777888", verified: true },
-    { name: "Sushi House VR", whatsapp: "5524999999000", verified: true }
-  ]
+// 🗺️ DDDs CONHECIDOS POR CIDADE
+const CITY_DDD_MAP = {
+  'volta redonda': '24',
+  'rio de janeiro': '21',
+  'niterói': '21',
+  'são paulo': '11',
+  'belo horizonte': '31',
+  'brasília': '61',
+  'salvador': '71',
+  'fortaleza': '85',
+  'recife': '81',
+  'curitiba': '41',
+  'porto alegre': '51',
+  'goiânia': '62',
+  'campinas': '19',
+  'santos': '13',
+  'sorocaba': '15'
 };
+
+// 🔗 DOMÍNIOS CONFIÁVEIS PARA VERIFICAÇÃO
+const TRUSTED_DOMAINS = [
+  'facebook.com',
+  'instagram.com', 
+  'delivery.com',
+  'ifood.com',
+  'deliverydireto.com',
+  'cardapio.com',
+  'aiqfome.com'
+];
 
 exports.handler = async (event, context) => {
   const headers = {
@@ -96,8 +106,12 @@ exports.handler = async (event, context) => {
 
     console.log(`[SEARCH] 🔍 Buscando ${food} em ${city}, ${state}`);
 
-    // 🎯 NOVA ESTRATÉGIA: PRIMEIRO ESTABELECIMENTOS, DEPOIS WHATSAPP REAL COM DDD 24
-    const restaurants = await searchEstablishmentsAndWhatsApp(food, city, state);
+    // 🆕 DESCOBRIR DDD DA CIDADE
+    const cityDDD = await getCityDDD(city, state);
+    console.log(`[SEARCH] 📞 DDD da cidade ${city}: ${cityDDD}`);
+
+    // 🎯 BUSCA INTELIGENTE COM VERIFICAÇÃO SIMPLIFICADA
+    const restaurants = await searchEstablishmentsAndWhatsApp(food, city, state, cityDDD);
 
     if (restaurants.length === 0) {
       return {
@@ -105,7 +119,7 @@ exports.handler = async (event, context) => {
         headers,
         body: JSON.stringify({
           success: false,
-          message: `Não encontrei ${food} com WhatsApp em ${city}`
+          message: `Não encontrei ${food} com WhatsApp verificado em ${city}`
         })
       };
     }
@@ -135,32 +149,87 @@ exports.handler = async (event, context) => {
   }
 };
 
-// 🎯 ESTRATÉGIA MELHORADA: BUSCAR NÚMEROS REAIS COM DDD 24
-async function searchEstablishmentsAndWhatsApp(food, city, state) {
+// 🗺️ DESCOBRIR DDD DA CIDADE
+async function getCityDDD(city, state) {
   try {
-    console.log(`[NEW_SEARCH] 🎯 ESTRATÉGIA: Buscar estabelecimentos + números DDD 24`);
+    console.log(`[DDD] 🔍 Descobrindo DDD para ${city}, ${state}`);
     
-    // PASSO 1: BUSCAR ESTABELECIMENTOS POPULARES NA CIDADE
+    // Primeiro, tentar do mapeamento conhecido
+    const cityKey = city.toLowerCase();
+    if (CITY_DDD_MAP[cityKey]) {
+      console.log(`[DDD] ✅ DDD encontrado no mapa: ${CITY_DDD_MAP[cityKey]}`);
+      return CITY_DDD_MAP[cityKey];
+    }
+
+    // Se não encontrou, buscar via Google API (apenas UMA consulta)
+    const googleKey = process.env.GOOGLE_API_KEY;
+    const cx = process.env.GOOGLE_CX;
+    
+    if (!googleKey || !cx) {
+      console.log(`[DDD] ⚠️ API não configurada, usando DDD padrão 24`);
+      return '24'; // Fallback
+    }
+
+    try {
+      const query = `DDD ${city} ${state} código de área`;
+      const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(query)}&key=${googleKey}&cx=${cx}&num=3`;
+      
+      const data = await fetchJSON(url, {}, 1, CONFIG.timeouts.google);
+      const items = data.items || [];
+      
+      // Buscar DDD nos resultados
+      for (const item of items) {
+        const text = `${item.title} ${item.snippet}`.toLowerCase();
+        const dddMatch = text.match(/ddd\s*(\d{2})|código.*?(\d{2})|área.*?(\d{2})/i);
+        
+        if (dddMatch) {
+          const ddd = dddMatch[1] || dddMatch[2] || dddMatch[3];
+          if (ddd && parseInt(ddd) >= 11 && parseInt(ddd) <= 99) {
+            console.log(`[DDD] ✅ DDD encontrado via Google: ${ddd}`);
+            CITY_DDD_MAP[cityKey] = ddd; // Salvar para cache
+            return ddd;
+          }
+        }
+      }
+    } catch (error) {
+      console.log(`[DDD] ⚠️ Erro na busca: ${error.message}`);
+    }
+    
+    console.log(`[DDD] ⚠️ DDD não encontrado, usando padrão 24`);
+    return '24'; // Fallback
+    
+  } catch (error) {
+    console.error(`[DDD] ❌ Erro:`, error);
+    return '24'; // Fallback
+  }
+}
+
+// 🎯 BUSCAR ESTABELECIMENTOS E WHATSAPP COM VERIFICAÇÃO INTELIGENTE
+async function searchEstablishmentsAndWhatsApp(food, city, state, cityDDD) {
+  try {
+    console.log(`[SEARCH_SMART] 🎯 Buscando estabelecimentos + WhatsApp DDD ${cityDDD}`);
+    
+    // PASSO 1: BUSCAR ESTABELECIMENTOS POPULARES
     const establishments = await findTopEstablishmentsInCity(food, city, state);
     
     if (establishments.length === 0) {
-      console.log(`[NEW_SEARCH] ❌ Nenhum estabelecimento encontrado`);
+      console.log(`[SEARCH_SMART] ❌ Nenhum estabelecimento encontrado`);
       return [];
     }
 
-    console.log(`[NEW_SEARCH] 📋 ${establishments.length} estabelecimentos encontrados`);
+    console.log(`[SEARCH_SMART] 📋 ${establishments.length} estabelecimentos encontrados`);
 
-    // PASSO 2: BUSCAR WHATSAPP REAL COM VALIDAÇÃO DDD 24
-    const restaurantsWithWhatsApp = [];
+    // PASSO 2: BUSCAR E VERIFICAR WHATSAPP COM VERIFICAÇÃO INTELIGENTE
+    const verifiedRestaurants = [];
 
     for (const establishment of establishments) {
-      if (restaurantsWithWhatsApp.length >= 3) break; // Já temos 3
+      if (verifiedRestaurants.length >= 3) break; // Já temos 3
 
       try {
-        console.log(`[NEW_SEARCH] 📱 Buscando WhatsApp DDD 24 para: ${establishment.name}`);
+        console.log(`[SEARCH_SMART] 📱 Verificando WhatsApp para: ${establishment.name}`);
         
-        // 🆕 BUSCAR NÚMERO REAL COM VALIDAÇÃO DDD 24
-        const whatsappNumber = await searchValidWhatsAppNumber(establishment.name, city, state, food);
+        // 🆕 BUSCAR NÚMERO CONFIÁVEL
+        const whatsappNumber = await findTrustedWhatsApp(establishment, cityDDD);
         
         if (whatsappNumber) {
           const restaurant = {
@@ -175,78 +244,90 @@ async function searchEstablishmentsAndWhatsApp(food, city, state) {
             specialty: generateSpecialty(food)
           };
 
-          restaurantsWithWhatsApp.push(restaurant);
-          console.log(`[NEW_SEARCH] ✅ ${establishment.name} - WhatsApp DDD 24: ${whatsappNumber}`);
+          verifiedRestaurants.push(restaurant);
+          console.log(`[SEARCH_SMART] ✅ ACEITO: ${establishment.name} - ${whatsappNumber}`);
           
         } else {
-          console.log(`[NEW_SEARCH] ❌ ${establishment.name} - WhatsApp DDD 24 não encontrado`);
+          console.log(`[SEARCH_SMART] ❌ ${establishment.name} - WhatsApp não encontrado`);
         }
         
-        await sleep(CONFIG.delays.betweenRequests);
+        await sleep(CONFIG.delays.betweenRequests); // Delay maior para evitar 429
         
       } catch (error) {
-        console.log(`[NEW_SEARCH] ⚠️ Erro ao buscar WhatsApp para ${establishment.name}: ${error.message}`);
+        console.log(`[SEARCH_SMART] ⚠️ Erro: ${error.message}`);
         continue;
       }
     }
 
-    // 🆕 SE NÃO ENCONTROU SUFICIENTES, USAR FALLBACKS REAIS DDD 24
-    if (restaurantsWithWhatsApp.length < 3) {
-      console.log(`[NEW_SEARCH] 📞 Completando com números fallback DDD 24`);
-      await addFallbackNumbers(restaurantsWithWhatsApp, food, city);
-    }
-
-    console.log(`[NEW_SEARCH] 🎉 RESULTADO: ${restaurantsWithWhatsApp.length} restaurantes com WhatsApp DDD 24`);
-    return restaurantsWithWhatsApp;
+    console.log(`[SEARCH_SMART] 🎉 ${verifiedRestaurants.length} restaurantes verificados`);
+    return verifiedRestaurants;
 
   } catch (error) {
-    console.error('[NEW_SEARCH] ❌ Erro crítico:', error);
+    console.error('[SEARCH_SMART] ❌ Erro crítico:', error);
     return [];
   }
 }
 
-// 🆕 BUSCAR NÚMERO WHATSAPP VÁLIDO COM DDD 24
-async function searchValidWhatsAppNumber(establishmentName, city, state, foodType) {
+// 🔍 BUSCAR WHATSAPP CONFIÁVEL (VERIFICAÇÃO INTELIGENTE)
+async function findTrustedWhatsApp(establishment, cityDDD) {
   try {
-    console.log(`[WHATSAPP_24] 📱 Buscando número DDD 24 para: ${establishmentName}`);
+    console.log(`[TRUSTED_WA] 🔍 Buscando WhatsApp confiável: ${establishment.name}`);
     
-    // 🔍 QUERIES ESPECÍFICAS PARA VOLTA REDONDA DDD 24
-    const whatsappQueries = [
-      `"${establishmentName}" whatsapp "24" "volta redonda"`,
-      `${establishmentName} whatsapp delivery "volta redonda" "24"`,
-      `${establishmentName} contato "(24)" "volta redonda"`,
-      `"${establishmentName}" "24 9" whatsapp`,
-      `site:wa.me/5524 ${establishmentName}`,
-      `"${establishmentName}" telefone "24" "volta redonda"`
+    // 🎯 ESTRATÉGIA 1: Se já temos link oficial, extrair direto da página
+    if (establishment.link && isTrustedDomain(establishment.link)) {
+      try {
+        console.log(`[TRUSTED_WA] 🔗 Verificando link oficial: ${establishment.link}`);
+        const html = await fetchText(establishment.link, {}, 1, CONFIG.timeouts.scraping);
+        const whatsapp = extractWhatsAppWithDDD(html, cityDDD);
+        
+        if (whatsapp) {
+          console.log(`[TRUSTED_WA] ✅ WhatsApp no site oficial: ${whatsapp}`);
+          return whatsapp;
+        }
+      } catch (error) {
+        console.log(`[TRUSTED_WA] ⚠️ Erro ao acessar site oficial: ${error.message}`);
+      }
+    }
+    
+    // 🎯 ESTRATÉGIA 2: Busca focada com menos queries
+    const focusedQueries = [
+      `"${establishment.name}" whatsapp ${cityDDD}`,
+      `${establishment.name} delivery whatsapp "0${cityDDD}"`,
+      `site:facebook.com ${establishment.name} ${cityDDD}`
     ];
 
-    for (const query of whatsappQueries) {
+    for (const query of focusedQueries) {
       try {
-        console.log(`[WHATSAPP_24] 🔍 Query: ${query.substring(0, 50)}...`);
+        console.log(`[TRUSTED_WA] 🔍 Query focada: ${query.substring(0, 50)}...`);
         
         const results = await searchGoogleAPIForWhatsApp(query);
         
         for (const result of results) {
-          // Tentar extrair WhatsApp com validação DDD 24
-          let whatsapp = extractWhatsAppDDD24(result.snippet);
+          // Verificar se é de domínio confiável
+          if (!isTrustedDomain(result.link) && !result.snippet.toLowerCase().includes('whatsapp')) {
+            continue;
+          }
+          
+          // Extrair WhatsApp do snippet primeiro
+          let whatsapp = extractWhatsAppWithDDD(result.snippet, cityDDD);
           
           if (whatsapp) {
-            console.log(`[WHATSAPP_24] 📱 WhatsApp DDD 24 no snippet: ${whatsapp}`);
+            console.log(`[TRUSTED_WA] 📱 WhatsApp no snippet confiável: ${whatsapp}`);
             return whatsapp;
           }
 
-          // Se não encontrou no snippet, tentar na página
-          if (result.link && !result.link.includes('instagram.com/accounts/')) {
+          // Se não encontrou no snippet, tentar na página (apenas sites confiáveis)
+          if (result.link && isTrustedDomain(result.link)) {
             try {
               const html = await fetchText(result.link, {}, 1, CONFIG.timeouts.scraping);
-              whatsapp = extractWhatsAppDDD24(html);
+              whatsapp = extractWhatsAppWithDDD(html, cityDDD);
               
               if (whatsapp) {
-                console.log(`[WHATSAPP_24] 📱 WhatsApp DDD 24 na página: ${whatsapp}`);
+                console.log(`[TRUSTED_WA] 📱 WhatsApp na página confiável: ${whatsapp}`);
                 return whatsapp;
               }
             } catch (pageError) {
-              console.log(`[WHATSAPP_24] ⚠️ Erro ao acessar página: ${pageError.message}`);
+              console.log(`[TRUSTED_WA] ⚠️ Erro ao acessar página: ${pageError.message}`);
             }
           }
         }
@@ -254,64 +335,68 @@ async function searchValidWhatsAppNumber(establishmentName, city, state, foodTyp
         await sleep(CONFIG.delays.betweenRequests);
         
       } catch (queryError) {
-        console.log(`[WHATSAPP_24] ⚠️ Erro na query: ${queryError.message}`);
+        console.log(`[TRUSTED_WA] ⚠️ Erro na query: ${queryError.message}`);
         continue;
       }
     }
 
-    console.log(`[WHATSAPP_24] ❌ WhatsApp DDD 24 não encontrado para ${establishmentName}`);
+    console.log(`[TRUSTED_WA] ❌ WhatsApp não encontrado para ${establishment.name}`);
     return null;
-
+    
   } catch (error) {
-    console.error(`[WHATSAPP_24] ❌ Erro crítico:`, error);
+    console.error(`[TRUSTED_WA] ❌ Erro crítico:`, error);
     return null;
   }
 }
 
-// 🆕 EXTRAIR WHATSAPP ESPECIFICAMENTE DDD 24 (VOLTA REDONDA)
-function extractWhatsAppDDD24(text) {
-  if (!text) return null;
+// 🔗 VERIFICAR SE É DOMÍNIO CONFIÁVEL
+function isTrustedDomain(url) {
+  if (!url) return false;
   
-  const textLower = text.toLowerCase();
+  const urlLower = url.toLowerCase();
+  return TRUSTED_DOMAINS.some(domain => urlLower.includes(domain));
+}
+
+// 📱 EXTRAIR WHATSAPP COM DDD ESPECÍFICO
+function extractWhatsAppWithDDD(text, targetDDD) {
+  if (!text || !targetDDD) return null;
   
-  // 📱 PADRÕES ESPECÍFICOS PARA DDD 24 (VOLTA REDONDA)
-  const ddd24Patterns = [
-    /wa\.me\/(\+?5524\d{8,9})/gi,
-    /wa\.me\/(\+?55\s?24\s?\d{8,9})/gi,
-    /whatsapp.*?(\+?55\s?24\s?9?\d{8})/gi,
-    /whatsapp.*?(24\s?9\d{8})/gi,
-    /contato.*?(\+?55\s?24\s?9\d{8})/gi,
-    /pedidos.*?(\+?55\s?24\s?9\d{8})/gi,
-    /(\+?55\s?)?24\s?9\d{8}/g,
-    /\(24\)\s?9\d{8}/g,
-    /24\s?9\d{4}[\s-]?\d{4}/g
+  // Padrões otimizados para o DDD da cidade
+  const dddPatterns = [
+    new RegExp(`wa\\.me\\/(\\+?55${targetDDD}\\d{8,9})`, 'gi'),
+    new RegExp(`wa\\.me\\/(\\+?55\\s?${targetDDD}\\s?\\d{8,9})`, 'gi'),
+    new RegExp(`whatsapp.*?(\\+?55\\s?${targetDDD}\\s?9?\\d{8})`, 'gi'),
+    new RegExp(`whatsapp.*?(${targetDDD}\\s?9\\d{8})`, 'gi'),
+    new RegExp(`contato.*?(\\+?55\\s?${targetDDD}\\s?9\\d{8})`, 'gi'),
+    new RegExp(`\\(${targetDDD}\\)\\s?9\\d{8}`, 'g'),
+    new RegExp(`0?${targetDDD}\\s?9\\d{8}`, 'g')
   ];
   
-  for (const pattern of ddd24Patterns) {
+  for (const pattern of dddPatterns) {
     const matches = text.match(pattern);
     if (matches && matches.length > 0) {
       for (const match of matches) {
         // Extrair só os números
         let number = match.replace(/\D/g, '');
         
-        // 🎯 VALIDAÇÃO RIGOROSA PARA DDD 24
+        // Validar formato básico
         if (number.length >= 10) {
-          // Se começar com 55, deve ter DDD 24
+          // Se começar com 55, verificar DDD
           if (number.startsWith('55')) {
-            if (number.substring(2, 4) === '24' && number.length >= 12) {
-              // Formato: 5524XXXXXXXXX
+            const ddd = number.substring(2, 4);
+            if (ddd === targetDDD && number.length >= 12) {
               const cleanNumber = '55' + number.substring(2);
-              if (isValidVoltaRedondaNumber(cleanNumber)) {
-                console.log(`[EXTRACT_24] 📱 Número DDD 24 válido: ${cleanNumber}`);
+              if (isValidPhoneNumber(cleanNumber, targetDDD)) {
+                console.log(`[EXTRACT] ✅ Número válido: ${cleanNumber}`);
                 return cleanNumber;
               }
             }
           }
-          // Se começar com 24, adicionar 55
-          else if (number.startsWith('24') && number.length >= 10) {
+          // Se começar com DDD, adicionar 55
+          else if (number.startsWith(targetDDD) && number.length >= 10) {
             const cleanNumber = '55' + number;
-            if (isValidVoltaRedondaNumber(cleanNumber)) {
-              console.log(`[EXTRACT_24] 📱 Número DDD 24 válido: ${cleanNumber}`);
+            if (isValidPhoneNumber(cleanNumber, targetDDD)) {
+              console.log(`[EXTRACT] ✅ Número válido: ${cleanNumber}`);
               return cleanNumber;
             }
           }
@@ -323,64 +408,28 @@ function extractWhatsAppDDD24(text) {
   return null;
 }
 
-// 🆕 VALIDAR SE É NÚMERO VÁLIDO DE VOLTA REDONDA
-function isValidVoltaRedondaNumber(number) {
-  // Deve ter 13 dígitos (55 + 24 + 9 dígitos)
+// 🔢 VALIDAR NÚMERO DE TELEFONE
+function isValidPhoneNumber(number, targetDDD) {
+  // Deve ter 13 dígitos (55 + DDD + 9 dígitos)
   if (number.length !== 13) return false;
   
-  // Deve começar com 5524
-  if (!number.startsWith('5524')) return false;
+  // Deve começar com 55 + DDD correto
+  if (!number.startsWith(`55${targetDDD}`)) return false;
   
-  // O 5º dígito deve ser 9 (celular)
+  // O próximo dígito deve ser 9 (celular)
   if (number.charAt(4) !== '9') return false;
   
   // Os próximos dígitos devem ser números válidos
-  const phoneNumber = number.substring(4); // Remove 5524
+  const phoneNumber = number.substring(4); // Remove 55XX
   if (phoneNumber.length !== 9) return false;
   
-  // Validação adicional: não pode ter todos os dígitos iguais
+  // Não pode ter todos os dígitos iguais
   if (/^9(\d)\1{8}$/.test(phoneNumber)) return false;
   
-  console.log(`[VALIDATE_24] ✅ Número válido DDD 24: ${number}`);
   return true;
 }
 
-// 🆕 ADICIONAR NÚMEROS FALLBACK REAIS DDD 24
-async function addFallbackNumbers(existingRestaurants, food, city) {
-  try {
-    console.log(`[FALLBACK_24] 🏪 Adicionando números fallback DDD 24 para ${food}`);
-    
-    const fallbackList = VOLTA_REDONDA_FALLBACK_NUMBERS[food] || VOLTA_REDONDA_FALLBACK_NUMBERS.pizza;
-    const existingNumbers = existingRestaurants.map(r => r.whatsapp);
-    
-    for (const fallback of fallbackList) {
-      if (existingRestaurants.length >= 3) break;
-      
-      // Não duplicar números
-      if (existingNumbers.includes(fallback.whatsapp)) continue;
-      
-      const restaurant = {
-        name: fallback.name,
-        whatsapp: fallback.whatsapp,
-        phone: fallback.whatsapp,
-        address: `${city}, RJ`,
-        link: '',
-        rating: generateRealisticRating(fallback.name),
-        estimatedTime: generateRealisticTime(),
-        estimatedPrice: generateRealisticPrice(food),
-        specialty: generateSpecialty(food)
-      };
-
-      existingRestaurants.push(restaurant);
-      console.log(`[FALLBACK_24] ✅ Adicionado: ${fallback.name} - ${fallback.whatsapp}`);
-    }
-    
-  } catch (error) {
-    console.error('[FALLBACK_24] ❌ Erro:', error);
-  }
-}
-
-// 🏪 BUSCAR TOP ESTABELECIMENTOS NA CIDADE (FUNÇÃO ORIGINAL)
+// 🏪 BUSCAR TOP ESTABELECIMENTOS NA CIDADE
 async function findTopEstablishmentsInCity(food, city, state) {
   try {
     console.log(`[ESTABLISHMENTS] 🏪 Buscando estabelecimentos de ${food} em ${city}`);
@@ -421,7 +470,7 @@ async function findTopEstablishmentsInCity(food, city, state) {
         link: result.link,
         snippet: result.snippet,
         priority: priority,
-        address: extractAddressFromSnippet(result.snippet, city)
+        address: extractAddressFromSnippet(result.snippet, city, state)
       });
     }
 
@@ -429,7 +478,7 @@ async function findTopEstablishmentsInCity(food, city, state) {
     establishments.sort((a, b) => b.priority - a.priority);
 
     console.log(`[ESTABLISHMENTS] 📊 ${establishments.length} estabelecimentos processados`);
-    return establishments.slice(0, 12);
+    return establishments.slice(0, 8); // Reduzido para evitar muitas consultas
 
   } catch (error) {
     console.error('[ESTABLISHMENTS] ❌ Erro:', error);
@@ -437,6 +486,7 @@ async function findTopEstablishmentsInCity(food, city, state) {
   }
 }
 
+// Funções auxiliares otimizadas
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -508,7 +558,7 @@ async function fetchText(url, options = {}, retries = CONFIG.retries.scraping, t
   }
 }
 
-// 🔍 BUSCAR NO GOOGLE USANDO API (MANTENDO FUNÇÃO ORIGINAL)
+// 🔍 BUSCAR NO GOOGLE USANDO API (OTIMIZADO)
 async function searchGoogleAPI(food, city, state) {
   try {
     console.log(`[GOOGLE_API] 🚀 Buscando: ${food} em ${city}`);
@@ -554,7 +604,7 @@ async function searchGoogleAPI(food, city, state) {
   }
 }
 
-// 📱 BUSCAR NO GOOGLE ESPECÍFICO PARA WHATSAPP
+// 📱 BUSCAR NO GOOGLE ESPECÍFICO PARA WHATSAPP (OTIMIZADO)
 async function searchGoogleAPIForWhatsApp(query) {
   try {
     console.log(`[GOOGLE_API_WA] 🚀 Query WhatsApp: ${query}`);
@@ -592,23 +642,35 @@ async function searchGoogleAPIForWhatsApp(query) {
   }
 }
 
-// 📍 EXTRAIR ENDEREÇO DO SNIPPET
-function extractAddressFromSnippet(snippet, city) {
-  if (!snippet) return `${city}, RJ`;
+// 📍 EXTRAIR ENDEREÇO DO SNIPPET - MELHORADO
+function extractAddressFromSnippet(snippet, city, state) {
+  if (!snippet) return `${city}, ${state}`;
   
   const addressPatterns = [
     /(?:rua|avenida|av\.?|r\.?)\s+[^,\n]+(?:,?\s*n?\.?\s*\d+)?(?:,\s*[^,\n]+)*/i,
-    /endere[çc]o:?\s*([^.\n]+)/i
+    /endere[çc]o:?\s*([^.\n]+)/i,
+    /([^.\n]*(?:rua|avenida|av\.?|r\.?)[^.\n]*)/i
   ];
   
   for (const pattern of addressPatterns) {
     const match = snippet.match(pattern);
     if (match) {
-      return match[0].substring(0, 100);
+      let address = match[0].trim();
+      // Limitar tamanho do endereço
+      if (address.length > 150) {
+        address = address.substring(0, 150) + '...';
+      }
+      return address;
     }
   }
   
-  return `${city}, RJ`;
+  // Fallback: pegar início do snippet se tiver info de endereço
+  if (snippet.includes(city) || snippet.includes(state)) {
+    const shortSnippet = snippet.substring(0, 100).trim();
+    return shortSnippet.length > 0 ? shortSnippet : `${city}, ${state}`;
+  }
+  
+  return `${city}, ${state}`;
 }
 
 // 🎯 GERAR INFORMAÇÕES REALISTAS
