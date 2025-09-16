@@ -10,6 +10,10 @@ const EVOLUTION_INSTANCE_ID = process.env.VITE_EVOLUTION_INSTANCE_ID;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
+// 🆕 ARMAZENAMENTO EM MEMÓRIA PARA ESTADOS DAS SESSÕES
+const sessionStates = new Map();
+const orderData = new Map();
+
 // PROMPT PREMIUM
 const SYSTEM_PROMPT = `
 Você é o IA Fome, o concierge particular PREMIUM de delivery mais exclusivo do mundo.
@@ -44,6 +48,36 @@ INFORMAÇÕES OBRIGATÓRIAS:
 IMPORTANTE: NUNCA invente restaurantes! Sempre aguarde a busca real retornar as opções.
 `;
 
+const POST_ORDER_PROMPT = `
+Você é o IA Fome e já enviou um pedido para um restaurante com sucesso.
+
+PERSONALIDADE PÓS-PEDIDO:
+- Tranquilizador e confiante
+- Informativo sobre o processo
+- Atencioso às preocupações do cliente
+- Proativo em dar atualizações
+
+SITUAÇÃO ATUAL:
+- O pedido JÁ FOI ENVIADO para o restaurante
+- O cliente pode estar ansioso, com dúvidas, ou agradecendo
+- Você deve TRANQUILIZAR e INFORMAR sobre o próximo passo
+
+RESPOSTAS APROPRIADAS:
+- Se cliente agradece: "De nada! Fico feliz em ajudar! 😊 O restaurante já está ciente do seu pedido."
+- Se cliente pergunta sobre tempo: "O tempo estimado é de X-Y minutos. Vou te avisar quando eles confirmarem!"
+- Se cliente tem dúvidas: "Tudo certo! O pedido foi enviado com sucesso e eles vão te responder em breve."
+- Se cliente quer cancelar: "Posso tentar cancelar para você. Deixe-me entrar em contato com eles."
+
+REGRAS:
+- NUNCA mostre restaurantes novamente
+- NUNCA inicie novo processo de coleta de dados
+- Seja empático e tranquilizador
+- Dê informações sobre o status quando possível
+- Se não souber algo específico, seja honesto
+
+LEMBRE-SE: O pedido JÁ foi enviado! Apenas tranquilize e informe o cliente.
+`;
+
 exports.handler = async (event, context) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -76,26 +110,63 @@ exports.handler = async (event, context) => {
 
     console.log(`[CHAT] 🚀 NOVA MENSAGEM: ${sessionId} - ${message}`);
 
+    // 🆕 VERIFICAR ESTADO DA SESSÃO
+    const currentState = sessionStates.get(sessionId) || 'collecting_info';
+    console.log(`[CHAT] 📊 Estado atual: ${currentState}`);
+
+    // 🆕 SE JÁ ENVIOU PEDIDO, USA PROMPT DIFERENTE
+    if (currentState === 'order_sent') {
+      console.log(`[CHAT] 📦 PEDIDO JÁ ENVIADO - Usando prompt pós-pedido`);
+      
+      const orderInfo = orderData.get(sessionId) || {};
+      
+      let context = POST_ORDER_PROMPT + "\n\n=== INFORMAÇÕES DO PEDIDO ENVIADO ===\n";
+      context += `Restaurante: ${orderInfo.selectedRestaurant?.name || 'Restaurante selecionado'}\n`;
+      context += `Comida: ${orderInfo.food || 'Pedido realizado'}\n`;
+      context += `Status: Pedido enviado e aguardando confirmação\n\n`;
+      
+      context += "=== CONVERSA ATUAL ===\n";
+      messages.slice(-3).forEach(msg => {
+        context += `${msg.role === 'user' ? 'Cliente' : 'IA Fome'}: ${msg.content}\n`;
+      });
+      context += `Cliente: ${message}\nIA Fome:`;
+
+      // Gerar resposta pós-pedido
+      const result = await model.generateContent(context);
+      let aiMessage = result.response.text().trim();
+
+      console.log(`[CHAT] 💬 Resposta pós-pedido: ${aiMessage}`);
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          message: aiMessage,
+          sessionId: sessionId
+        })
+      };
+    }
+
     // Extrair dados diretamente das mensagens
-    const orderData = extractOrderFromMessages(messages, message);
-    console.log(`[CHAT] 📊 Dados extraídos:`, orderData);
+    const extractedData = extractOrderFromMessages(messages, message);
+    console.log(`[CHAT] 📊 Dados extraídos:`, extractedData);
 
     // Verificar se temos todas as informações OBRIGATÓRIAS
-    const hasAllInfo = !!(orderData.food && 
-                         orderData.address && 
-                         orderData.phone && 
-                         orderData.paymentMethod &&
-                         (orderData.paymentMethod !== 'dinheiro' || orderData.change));
+    const hasAllInfo = !!(extractedData.food && 
+                         extractedData.address && 
+                         extractedData.phone && 
+                         extractedData.paymentMethod &&
+                         (extractedData.paymentMethod !== 'dinheiro' || extractedData.change));
 
     console.log(`[CHAT] ✅ Info completa: ${hasAllInfo}`);
     console.log(`[CHAT] 🔍 Detalhes:`, {
-      food: !!orderData.food,
-      address: !!orderData.address,
-      phone: !!orderData.phone,
-      payment: !!orderData.paymentMethod
+      food: !!extractedData.food,
+      address: !!extractedData.address,
+      phone: !!extractedData.phone,
+      payment: !!extractedData.paymentMethod
     });
 
-    // 🔥 DETECÇÃO: Se cliente escolheu restaurante (1, 2 ou 3)
+    // 🔥 DETECÇÃO: Se cliente escolheu restaurante (1, 2 ou 3) E não estava em estado order_sent
     const isRestaurantChoice = /^[123]$/.test(message.trim());
     const previouslySearchedRestaurants = messages.some(msg => 
       msg.role === 'assistant' && 
@@ -103,11 +174,11 @@ exports.handler = async (event, context) => {
       msg.content.match(/[123]\.\s*\*\*/g)
     );
 
-    if (isRestaurantChoice && previouslySearchedRestaurants) {
+    if (isRestaurantChoice && previouslySearchedRestaurants && currentState !== 'order_sent') {
       console.log(`[CHAT] 🎯 CLIENTE ESCOLHEU RESTAURANTE: Opção ${message}`);
       
       // BUSCAR RESTAURANTES NOVAMENTE VIA API REAL
-      const restaurants = await searchRealRestaurantsAPI(orderData);
+      const restaurants = await searchRealRestaurantsAPI(extractedData);
       
       if (restaurants && restaurants.length > 0) {
         const choice = parseInt(message.trim()) - 1;
@@ -116,10 +187,19 @@ exports.handler = async (event, context) => {
         if (selectedRestaurant) {
           console.log(`[CHAT] 🏪 RESTAURANTE SELECIONADO: ${selectedRestaurant.name}`);
           
+          // 🆕 SALVAR DADOS DO PEDIDO
+          orderData.set(sessionId, {
+            ...extractedData,
+            selectedRestaurant: selectedRestaurant
+          });
+          
           // FAZER PEDIDO REAL IMEDIATAMENTE!
-          const orderSent = await makeOrderImmediately(orderData, selectedRestaurant);
+          const orderSent = await makeOrderImmediately(extractedData, selectedRestaurant);
           
           if (orderSent) {
+            // 🆕 ATUALIZAR ESTADO DA SESSÃO
+            sessionStates.set(sessionId, 'order_sent');
+            
             return {
               statusCode: 200,
               headers,
@@ -152,10 +232,10 @@ exports.handler = async (event, context) => {
     }
 
     // 🚀 SE TEMOS TODAS AS INFORMAÇÕES, BUSCAR RESTAURANTES AUTOMATICAMENTE!
-    if (hasAllInfo) {
+    if (hasAllInfo && currentState !== 'order_sent') {
       console.log(`[CHAT] 🔍 TODAS INFORMAÇÕES COLETADAS - BUSCANDO RESTAURANTES AUTOMATICAMENTE!`);
       
-      const restaurants = await searchRealRestaurantsAPI(orderData);
+      const restaurants = await searchRealRestaurantsAPI(extractedData);
       
       if (restaurants && restaurants.length > 0) {
         let restaurantsList = "🍕 Encontrei restaurantes REAIS na sua região:\n\n";
@@ -192,12 +272,12 @@ exports.handler = async (event, context) => {
 
     // Construir contexto para IA (só se não tiver todas as informações)
     let context = SYSTEM_PROMPT + "\n\n=== DADOS COLETADOS ===\n";
-    context += `Comida: ${orderData.food || 'Não informado'}\n`;
-    context += `Endereço: ${orderData.address || 'Não informado'}\n`;
-    context += `Cidade: ${orderData.city || 'Não informado'}\n`;
-    context += `WhatsApp: ${orderData.phone || 'Não informado'}\n`;
-    context += `Pagamento: ${orderData.paymentMethod || 'Não informado'}\n`;
-    context += `Troco: ${orderData.change || 'Não informado'}\n\n`;
+    context += `Comida: ${extractedData.food || 'Não informado'}\n`;
+    context += `Endereço: ${extractedData.address || 'Não informado'}\n`;
+    context += `Cidade: ${extractedData.city || 'Não informado'}\n`;
+    context += `WhatsApp: ${extractedData.phone || 'Não informado'}\n`;
+    context += `Pagamento: ${extractedData.paymentMethod || 'Não informado'}\n`;
+    context += `Troco: ${extractedData.change || 'Não informado'}\n\n`;
     
     context += "=== CONVERSA ===\n";
     messages.forEach(msg => {
@@ -231,17 +311,17 @@ exports.handler = async (event, context) => {
 };
 
 // 🔍 BUSCAR RESTAURANTES VIA API REAL
-async function searchRealRestaurantsAPI(orderData) {
+async function searchRealRestaurantsAPI(extractedData) {
   try {
     console.log(`[API] 🔍 BUSCANDO VIA API REAL...`);
-    console.log(`[API] 📊 OrderData:`, orderData);
+    console.log(`[API] 📊 OrderData:`, extractedData);
     
     // Usar a cidade já extraída ou fallback
-    const city = orderData.city || 'Volta Redonda';
+    const city = extractedData.city || 'Volta Redonda';
     
     console.log(`[API] 📍 Cidade para busca: ${city}`);
-    console.log(`[API] 🍕 Comida original: ${orderData.food}`);
-    console.log(`[API] 🍕 Comida limpa: ${orderData.foodType}`);
+    console.log(`[API] 🍕 Comida original: ${extractedData.food}`);
+    console.log(`[API] 🍕 Comida limpa: ${extractedData.foodType}`);
     
     // Chamar nossa API de busca INTERNA (mesma instância)
     const apiUrl = `${process.env.URL || 'https://iafome.netlify.app'}/.netlify/functions/search-restaurants`;
@@ -254,7 +334,7 @@ async function searchRealRestaurantsAPI(orderData) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        food: orderData.foodType || 'pizza', // USAR TIPO LIMPO
+        food: extractedData.foodType || 'pizza', // USAR TIPO LIMPO
         city: city,
         state: 'RJ'
       })
@@ -297,7 +377,7 @@ function extractOrderFromMessages(messages, currentMessage) {
   
   console.log(`[EXTRACT] 🔍 Texto completo do usuário: ${allUserText.substring(0, 200)}...`);
   
-  const orderData = {
+  const extractedData = {
     food: null,
     foodType: null, // NOVO: tipo limpo de comida
     address: null,
@@ -327,8 +407,8 @@ function extractOrderFromMessages(messages, currentMessage) {
       
       for (const msg of userMessagesWithCurrent) {
         if (msg.toLowerCase().includes(keyword)) {
-          orderData.food = msg; // Mensagem completa
-          orderData.foodType = type; // Tipo limpo
+          extractedData.food = msg; // Mensagem completa
+          extractedData.foodType = type; // Tipo limpo
           console.log(`[EXTRACT] 🍕 Comida encontrada: ${keyword} -> ${type}`);
           break;
         }
@@ -348,7 +428,7 @@ function extractOrderFromMessages(messages, currentMessage) {
   for (const pattern of addressPatterns) {
     const match = allUserText.match(pattern);
     if (match) {
-      orderData.address = match[0];
+      extractedData.address = match[0];
       
       // Extrair cidade do endereço - MELHORADO
       const addressText = match[0].toLowerCase();
@@ -362,7 +442,7 @@ function extractOrderFromMessages(messages, currentMessage) {
       
       for (const city of knownCities) {
         if (addressText.includes(city)) {
-          orderData.city = city.split(' ').map(word => 
+          extractedData.city = city.split(' ').map(word => 
             word.charAt(0).toUpperCase() + word.slice(1)
           ).join(' ');
           break;
@@ -370,8 +450,8 @@ function extractOrderFromMessages(messages, currentMessage) {
       }
       
       // Se não encontrou cidade conhecida, tentar última parte LIMPA do endereço
-      if (!orderData.city) {
-        const cleanAddress = orderData.address.replace(/para pagar no cartão|vou pagar no cartão/gi, '');
+      if (!extractedData.city) {
+        const cleanAddress = extractedData.address.replace(/para pagar no cartão|vou pagar no cartão/gi, '');
         const parts = cleanAddress.split(',').map(part => part.trim());
         
         for (const part of parts.reverse()) {
@@ -381,15 +461,15 @@ function extractOrderFromMessages(messages, currentMessage) {
               !part.match(/^(rua|avenida|av|r|n|jardim)$/i) &&
               !part.includes('pagar') &&
               !part.includes('cartão')) {
-            orderData.city = part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+            extractedData.city = part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
             break;
           }
         }
       }
       
       // Fallback para Volta Redonda
-      if (!orderData.city) {
-        orderData.city = 'Volta Redonda';
+      if (!extractedData.city) {
+        extractedData.city = 'Volta Redonda';
       }
       
       break;
@@ -409,43 +489,43 @@ function extractOrderFromMessages(messages, currentMessage) {
       for (const match of matches) {
         const cleanPhone = match.replace(/\D/g, '');
         if (cleanPhone.length >= 10 && cleanPhone.length <= 11) {
-          orderData.phone = cleanPhone;
+          extractedData.phone = cleanPhone;
           console.log(`[EXTRACT] 📱 Telefone encontrado: ${cleanPhone}`);
           break;
         }
       }
-      if (orderData.phone) break;
+      if (extractedData.phone) break;
     }
   }
 
   // Extrair PAGAMENTO
   if (allUserText.includes('cartão') || allUserText.includes('cartao')) {
-    orderData.paymentMethod = 'cartão';
+    extractedData.paymentMethod = 'cartão';
   } else if (allUserText.includes('dinheiro') || allUserText.includes('espécie')) {
-    orderData.paymentMethod = 'dinheiro';
+    extractedData.paymentMethod = 'dinheiro';
   } else if (allUserText.includes('pix')) {
-    orderData.paymentMethod = 'pix';
+    extractedData.paymentMethod = 'pix';
   }
 
   // Extrair TROCO
   const changeMatch = allUserText.match(/troco.*?(\d+)/i);
   if (changeMatch) {
-    orderData.change = changeMatch[1];
+    extractedData.change = changeMatch[1];
   }
 
-  console.log(`[EXTRACT] 📝 Dados extraídos finais:`, orderData);
-  return orderData;
+  console.log(`[EXTRACT] 📝 Dados extraídos finais:`, extractedData);
+  return extractedData;
 }
 
 // 📞 FAZER PEDIDO IMEDIATAMENTE
-async function makeOrderImmediately(orderData, restaurant) {
+async function makeOrderImmediately(extractedData, restaurant) {
   try {
     console.log(`[PEDIDO] 📞 FAZENDO PEDIDO REAL AGORA!`);
     console.log(`[PEDIDO] 🏪 Restaurante: ${restaurant.name}`);
     console.log(`[PEDIDO] 📱 WhatsApp: ${restaurant.whatsapp}`);
 
     // Limpar endereço para pedido
-    let cleanAddress = orderData.address;
+    let cleanAddress = extractedData.address;
     if (cleanAddress) {
       cleanAddress = cleanAddress
         .replace(/r em /gi, '')
@@ -460,16 +540,16 @@ async function makeOrderImmediately(orderData, restaurant) {
 Gostaria de fazer um pedido para entrega:
 
 🍕 PEDIDO:
-${orderData.food}
+${extractedData.food}
 
 📍 ENDEREÇO DE ENTREGA:
 ${cleanAddress}
 
 📱 CONTATO:
-${orderData.phone}
+${extractedData.phone}
 
 💰 FORMA DE PAGAMENTO:
-${orderData.paymentMethod}${orderData.change ? ` (Troco para R$ ${orderData.change})` : ''}
+${extractedData.paymentMethod}${extractedData.change ? ` (Troco para R$ ${extractedData.change})` : ''}
 
 Podem me confirmar o valor total e o tempo de entrega?
 
