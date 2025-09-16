@@ -20,7 +20,7 @@ const CONFIG = {
   }
 };
 
-// LISTA DE ESTABELECIMENTOS POPULARES POR CATEGORIA (PRIORIDADE)
+// 🏆 ESTABELECIMENTOS POPULARES POR CATEGORIA (PRIORIDADE)
 const POPULAR_ESTABLISHMENTS = {
   pizza: [
     'dominos', "domino's", 'pizza hut', 'telepizza', 'pizza express', 
@@ -76,9 +76,9 @@ exports.handler = async (event, context) => {
 
     console.log(`[SEARCH] 🔍 Buscando ${food} em ${city}, ${state}`);
 
-    // NOVA ESTRATÉGIA: PRIMEIRO ENCONTRAR ESTABELECIMENTOS, DEPOIS WHATSAPP
+    // 🎯 NOVA ESTRATÉGIA: PRIMEIRO ESTABELECIMENTOS, DEPOIS WHATSAPP
     const restaurants = await searchEstablishmentsAndWhatsApp(food, city, state);
-    
+
     if (restaurants.length === 0) {
       return {
         statusCode: 200,
@@ -107,9 +107,9 @@ exports.handler = async (event, context) => {
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         error: 'Erro interno do servidor',
-        details: error.message 
+        details: error.message
       })
     };
   }
@@ -118,10 +118,10 @@ exports.handler = async (event, context) => {
 // 🎯 NOVA ESTRATÉGIA: PRIMEIRO ESTABELECIMENTOS, DEPOIS WHATSAPP
 async function searchEstablishmentsAndWhatsApp(food, city, state) {
   try {
-    console.log(`[NEW_SEARCH] 🎯 NOVA ESTRATÉGIA: Primeiro estabelecimentos, depois WhatsApp`);
+    console.log(`[NEW_SEARCH] 🎯 ESTRATÉGIA: Primeiro encontrar estabelecimentos, depois WhatsApp`);
     
-    // PASSO 1: BUSCAR ESTABELECIMENTOS NA CIDADE
-    const establishments = await findEstablishmentsInCity(food, city, state);
+    // PASSO 1: BUSCAR ESTABELECIMENTOS POPULARES NA CIDADE
+    const establishments = await findTopEstablishmentsInCity(food, city, state);
     
     if (establishments.length === 0) {
       console.log(`[NEW_SEARCH] ❌ Nenhum estabelecimento encontrado`);
@@ -133,14 +133,16 @@ async function searchEstablishmentsAndWhatsApp(food, city, state) {
       console.log(`[NEW_SEARCH] ${i+1}. ${est.name} (Prioridade: ${est.priority})`);
     });
 
-    // PASSO 2: BUSCAR WHATSAPP PARA CADA ESTABELECIMENTO
+    // PASSO 2: BUSCAR WHATSAPP ESPECÍFICO PARA CADA ESTABELECIMENTO
     const restaurantsWithWhatsApp = [];
 
     for (const establishment of establishments) {
+      if (restaurantsWithWhatsApp.length >= 3) break; // Já temos 3
+
       try {
         console.log(`[NEW_SEARCH] 📱 Buscando WhatsApp para: ${establishment.name}`);
         
-        const whatsappNumber = await searchWhatsAppForEstablishment(establishment.name, city, state);
+        const whatsappNumber = await searchWhatsAppForSpecificEstablishment(establishment.name, city, state);
         
         if (whatsappNumber) {
           const restaurant = {
@@ -156,17 +158,13 @@ async function searchEstablishmentsAndWhatsApp(food, city, state) {
           };
 
           restaurantsWithWhatsApp.push(restaurant);
-          console.log(`[NEW_SEARCH] ✅ ${establishment.name} - WhatsApp encontrado: ${whatsappNumber}`);
+          console.log(`[NEW_SEARCH] ✅ ${establishment.name} - WhatsApp: ${whatsappNumber}`);
           
-          // Parar quando tivermos 3 restaurantes
-          if (restaurantsWithWhatsApp.length >= 3) {
-            break;
-          }
         } else {
           console.log(`[NEW_SEARCH] ❌ ${establishment.name} - WhatsApp não encontrado`);
         }
         
-        // Delay entre buscas
+        // Delay entre buscas para não sobrecarregar
         await sleep(CONFIG.delays.betweenRequests);
         
       } catch (error) {
@@ -175,7 +173,7 @@ async function searchEstablishmentsAndWhatsApp(food, city, state) {
       }
     }
 
-    console.log(`[NEW_SEARCH] 🎉 RESULTADO FINAL: ${restaurantsWithWhatsApp.length} restaurantes com WhatsApp`);
+    console.log(`[NEW_SEARCH] 🎉 RESULTADO: ${restaurantsWithWhatsApp.length} restaurantes com WhatsApp`);
     return restaurantsWithWhatsApp;
 
   } catch (error) {
@@ -184,15 +182,13 @@ async function searchEstablishmentsAndWhatsApp(food, city, state) {
   }
 }
 
-// 🏪 BUSCAR ESTABELECIMENTOS NA CIDADE (SEM WHATSAPP)
-async function findEstablishmentsInCity(food, city, state) {
+// 🏪 BUSCAR TOP ESTABELECIMENTOS NA CIDADE (SEM BUSCAR WHATSAPP)
+async function findTopEstablishmentsInCity(food, city, state) {
   try {
     console.log(`[ESTABLISHMENTS] 🏪 Buscando estabelecimentos de ${food} em ${city}`);
     
-    // Query focada apenas em encontrar estabelecimentos
-    const searchQuery = `${food} restaurante ${city} ${state} delivery`;
-    
-    const googleResults = await searchGoogleAPI(searchQuery, 15); // Mais resultados
+    // USAR A FUNÇÃO ORIGINAL QUE FUNCIONAVA
+    const googleResults = await searchGoogleAPI(food, city, state);
     
     if (googleResults.length === 0) {
       console.log(`[ESTABLISHMENTS] ❌ Nenhum resultado do Google`);
@@ -207,6 +203,7 @@ async function findEstablishmentsInCity(food, city, state) {
       const name = result.title;
       const isRelevant = name.toLowerCase().includes(city.toLowerCase()) ||
                         result.snippet.toLowerCase().includes(city.toLowerCase()) ||
+                        result.link.toLowerCase().includes(city.toLowerCase()) ||
                         result.link.includes('.br');
 
       if (!isRelevant) continue;
@@ -234,8 +231,8 @@ async function findEstablishmentsInCity(food, city, state) {
     // Ordenar por prioridade (populares primeiro)
     establishments.sort((a, b) => b.priority - a.priority);
 
-    console.log(`[ESTABLISHMENTS] 📊 ${establishments.length} estabelecimentos processados e ordenados`);
-    return establishments.slice(0, 10); // Top 10 para buscar WhatsApp
+    console.log(`[ESTABLISHMENTS] 📊 ${establishments.length} estabelecimentos processados`);
+    return establishments.slice(0, 12); // Top 12 para buscar WhatsApp
 
   } catch (error) {
     console.error('[ESTABLISHMENTS] ❌ Erro:', error);
@@ -244,42 +241,42 @@ async function findEstablishmentsInCity(food, city, state) {
 }
 
 // 📱 BUSCAR WHATSAPP ESPECÍFICO PARA UM ESTABELECIMENTO
-async function searchWhatsAppForEstablishment(establishmentName, city, state) {
+async function searchWhatsAppForSpecificEstablishment(establishmentName, city, state) {
   try {
     console.log(`[WHATSAPP_SEARCH] 📱 Buscando WhatsApp: ${establishmentName}`);
     
-    // Queries específicas para WhatsApp
+    // Queries específicas para WhatsApp deste estabelecimento
     const whatsappQueries = [
       `"${establishmentName}" whatsapp ${city}`,
-      `"${establishmentName}" "whatsapp" ${city} ${state}`,
-      `${establishmentName} contato whatsapp ${city}`,
-      `${establishmentName} pedidos whatsapp delivery`,
-      `site:wa.me ${establishmentName} ${city}`
+      `${establishmentName} whatsapp delivery ${city}`,
+      `${establishmentName} contato ${city} ${state}`,
+      `site:wa.me ${establishmentName}`
     ];
 
     for (const query of whatsappQueries) {
       try {
-        console.log(`[WHATSAPP_SEARCH] 🔍 Query: ${query.substring(0, 50)}...`);
+        console.log(`[WHATSAPP_SEARCH] 🔍 Tentativa: ${query.substring(0, 50)}...`);
         
-        const results = await searchGoogleAPI(query, 5);
+        // USAR A MESMA FUNÇÃO searchGoogleAPI QUE FUNCIONAVA ANTES
+        const results = await searchGoogleAPIForWhatsApp(query);
         
         for (const result of results) {
           // Tentar extrair WhatsApp do snippet primeiro
           let whatsapp = extractWhatsAppFromText(result.snippet);
           
           if (whatsapp) {
-            console.log(`[WHATSAPP_SEARCH] 📱 WhatsApp encontrado no snippet: ${whatsapp}`);
+            console.log(`[WHATSAPP_SEARCH] 📱 WhatsApp no snippet: ${whatsapp}`);
             return whatsapp;
           }
 
-          // Se não encontrou no snippet, tentar na página
+          // Se não encontrou no snippet, tentar na página (se não for Instagram accounts)
           if (result.link && !result.link.includes('instagram.com/accounts/')) {
             try {
               const html = await fetchText(result.link, {}, 1, CONFIG.timeouts.scraping);
               whatsapp = extractWhatsAppFromText(html);
               
               if (whatsapp) {
-                console.log(`[WHATSAPP_SEARCH] 📱 WhatsApp encontrado na página: ${whatsapp}`);
+                console.log(`[WHATSAPP_SEARCH] 📱 WhatsApp na página: ${whatsapp}`);
                 return whatsapp;
               }
             } catch (pageError) {
@@ -305,14 +302,14 @@ async function searchWhatsAppForEstablishment(establishmentName, city, state) {
   }
 }
 
-function sleep(ms) { 
-  return new Promise(r => setTimeout(r, ms)); 
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
 }
 
 function timeoutPromise(promise, ms) {
   return Promise.race([
     promise,
-    new Promise((_, reject) => 
+    new Promise((_, reject) =>
       setTimeout(() => reject(new Error(`Timeout após ${ms}ms`)), ms)
     )
   ]);
@@ -376,10 +373,10 @@ async function fetchText(url, options = {}, retries = CONFIG.retries.scraping, t
   }
 }
 
-// 🔍 BUSCAR NO GOOGLE USANDO API (MELHORADO)
-async function searchGoogleAPI(query, numResults = 10) {
+// 🔍 BUSCAR NO GOOGLE USANDO API (MANTENDO ASSINATURA ORIGINAL QUE FUNCIONAVA)
+async function searchGoogleAPI(food, city, state) {
   try {
-    console.log(`[GOOGLE_API] 🚀 Query: ${query}`);
+    console.log(`[GOOGLE_API] 🚀 Buscando: ${food} em ${city}`);
     
     const googleKey = process.env.GOOGLE_API_KEY;
     const cx = process.env.GOOGLE_CX;
@@ -387,14 +384,18 @@ async function searchGoogleAPI(query, numResults = 10) {
     if (!googleKey || !cx) {
       console.log("[GOOGLE_API] API não configurada, retornando mock");
       return [{
-        title: `Restaurante Mock - ${query}`,
+        title: `Restaurante ${food} - ${city}`,
         link: "https://example.com",
         snippet: "Restaurante de exemplo para demonstração",
         source: "google_mock"
       }];
     }
     
-    const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(query)}&key=${googleKey}&cx=${cx}&num=${numResults}`;
+    // Query focada em restaurantes (SEM whatsapp para encontrar mais estabelecimentos)
+    const searchQuery = `${food} restaurante delivery ${city} ${state}`;
+    const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(searchQuery)}&key=${googleKey}&cx=${cx}&num=10`;
+    
+    console.log(`[GOOGLE_API] 🌐 URL: ${url}`);
     
     const data = await fetchJSON(url, {}, 1, CONFIG.timeouts.google);
     const items = data.items || [];
@@ -419,13 +420,51 @@ async function searchGoogleAPI(query, numResults = 10) {
   }
 }
 
-// 📱 EXTRAIR WHATSAPP DE TEXTO (MELHORADO)
+// 📱 BUSCAR NO GOOGLE ESPECÍFICO PARA WHATSAPP
+async function searchGoogleAPIForWhatsApp(query) {
+  try {
+    console.log(`[GOOGLE_API_WA] 🚀 Query WhatsApp: ${query}`);
+    
+    const googleKey = process.env.GOOGLE_API_KEY;
+    const cx = process.env.GOOGLE_CX;
+    
+    if (!googleKey || !cx) {
+      console.log("[GOOGLE_API_WA] API não configurada");
+      return [];
+    }
+    
+    const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(query)}&key=${googleKey}&cx=${cx}&num=5`;
+    
+    const data = await fetchJSON(url, {}, 1, CONFIG.timeouts.google);
+    const items = data.items || [];
+    
+    console.log(`[GOOGLE_API_WA] ✅ ${items.length} resultados da API`);
+    
+    const results = [];
+    for (const item of items) {
+      results.push({
+        title: item.title,
+        link: item.link,
+        snippet: item.snippet || "",
+        source: "google_api_wa"
+      });
+    }
+    
+    return results;
+    
+  } catch (error) {
+    console.log(`[GOOGLE_API_WA] ❌ Erro: ${error.message}`);
+    return [];
+  }
+}
+
+// 📱 EXTRAIR WHATSAPP DE TEXTO (MANTENDO FUNÇÃO ORIGINAL)
 function extractWhatsAppFromText(text) {
   if (!text) return null;
   
   const textLower = text.toLowerCase();
   
-  // Padrões de WhatsApp em ordem de prioridade
+  // Padrões de WhatsApp em ordem de prioridade (incluindo +55)
   const whatsappPatterns = [
     /wa\.me\/(\+?55\d{10,11})/gi,
     /wa\.me\/(\d{12,15})/gi,
@@ -479,7 +518,7 @@ function extractAddressFromSnippet(snippet, city) {
   return `${city}, RJ`;
 }
 
-// 🎯 GERAR INFORMAÇÕES REALISTAS
+// 🎯 GERAR INFORMAÇÕES REALISTAS (MANTENDO FUNÇÃO ORIGINAL)
 function generateRealisticRating(name) {
   const nameLower = name.toLowerCase();
   let rating = 4.0 + (Math.random() * 0.8); // 4.0 - 4.8
