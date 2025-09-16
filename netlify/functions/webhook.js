@@ -168,8 +168,8 @@ async function handleRestaurantResponse(order, messageText, restaurantPhone) {
     if (messageAnalysis.needsClientInput) {
       console.log(`[RESTAURANT] ❓ Pergunta que precisa do cliente real`);
       
-      // Enviar pergunta para o cliente no IA Fome
-      await notifyClientForInput(sessionId, messageText);
+      // 🆕 ENVIAR PERGUNTA PARA O CLIENTE NO NÚMERO CORRETO
+      await notifyClientForInput(sessionId, messageText, order.orderData);
       
       // Marcar que estamos esperando resposta do cliente
       order.status = 'waiting_client_response';
@@ -208,22 +208,23 @@ async function handleRestaurantResponse(order, messageText, restaurantPhone) {
             console.log(`[RESTAURANT] 🎉 PEDIDO CONFIRMADO!`);
             
             order.status = 'confirmed';
-            await notifyClientOrderConfirmed(sessionId, messageText);
+            // 🆕 NOTIFICAR CLIENTE NO NÚMERO CORRETO
+            await notifyClientOrderConfirmed(sessionId, messageText, order.orderData);
             
             // Enviar múltiplas mensagens sequenciais para tranquilizar o cliente
-            await sendMultipleClientUpdates(sessionId, messageText);
+            await sendMultipleClientUpdates(sessionId, messageText, order.orderData);
             
           } else if (messageAnalysis.type === 'preparing') {
             console.log(`[RESTAURANT] 👨‍🍳 PEDIDO EM PREPARO!`);
             
             order.status = 'preparing';
-            await notifyClientOrderStatus(sessionId, 'Seu pedido está sendo preparado! 👨‍🍳');
+            await notifyClientOrderStatus(sessionId, 'Seu pedido está sendo preparado! 👨‍🍳', order.orderData);
             
           } else if (messageAnalysis.type === 'out_for_delivery') {
             console.log(`[RESTAURANT] 🛵 SAIU PARA ENTREGA!`);
             
             order.status = 'out_for_delivery';
-            await notifyClientOrderStatus(sessionId, 'Seu pedido saiu para entrega! 🛵 Em breve estará aí!');
+            await notifyClientOrderStatus(sessionId, 'Seu pedido saiu para entrega! 🛵 Em breve estará aí!', order.orderData);
             
           }
           
@@ -355,13 +356,14 @@ ${orderData.change ? `Troco para: R$ ${orderData.change}` : ''}
   }
 }
 
-// 📢 NOTIFICAR CLIENTE PARA INPUT
-async function notifyClientForInput(sessionId, question) {
+// 📢 NOTIFICAR CLIENTE PARA INPUT - 🆕 USANDO NÚMERO DO CLIENTE
+async function notifyClientForInput(sessionId, question, orderData) {
   console.log(`[NOTIFY] 📢 Notificar cliente ${sessionId}: ${question}`);
   
-  // Buscar informações da sessão (se necessário, implementar busca na base de dados)
-  const session = sessions.get(sessionId);
-  if (session && session.orderData && session.orderData.phone) {
+  // 🆕 USAR O NÚMERO DO CLIENTE DOS DADOS DO PEDIDO
+  if (orderData && orderData.phone) {
+    console.log(`[NOTIFY] 📱 Enviando para cliente: ${orderData.phone}`);
+    
     const clientMessage = `🍕 IA Fome: O restaurante perguntou:
 
 "${question}"
@@ -370,19 +372,21 @@ Por favor, responda no chat do IA Fome: https://iafome.netlify.app
 
 Preciso da sua resposta para continuar o pedido! 🙏`;
     
-    await sendWhatsAppMessage(session.orderData.phone, clientMessage);
+    await sendWhatsAppMessage(orderData.phone, clientMessage);
     console.log(`[NOTIFY] 📱 Notificação enviada para cliente via WhatsApp`);
   } else {
     console.log(`[NOTIFY] ⚠️ Dados do cliente não encontrados para sessão: ${sessionId}`);
   }
 }
 
-// 🎉 NOTIFICAR CLIENTE QUE PEDIDO FOI CONFIRMADO
-async function notifyClientOrderConfirmed(sessionId, restaurantMessage) {
+// 🎉 NOTIFICAR CLIENTE QUE PEDIDO FOI CONFIRMADO - 🆕 USANDO NÚMERO DO CLIENTE
+async function notifyClientOrderConfirmed(sessionId, restaurantMessage, orderData) {
   console.log(`[NOTIFY] 🎉 Pedido confirmado para cliente ${sessionId}`);
   
-  const session = sessions.get(sessionId);
-  if (session && session.orderData && session.orderData.phone) {
+  // 🆕 USAR O NÚMERO DO CLIENTE DOS DADOS DO PEDIDO
+  if (orderData && orderData.phone) {
+    console.log(`[NOTIFY] 📱 Enviando confirmação para cliente: ${orderData.phone}`);
+    
     const clientMessage = `🎉 IA Fome: SEU PEDIDO FOI CONFIRMADO!
 
 ${restaurantMessage}
@@ -391,18 +395,19 @@ Relaxa que está tudo certo! Em breve sua comida chegará! 😊
 
 Acompanhe pelo chat: https://iafome.netlify.app`;
     
-    await sendWhatsAppMessage(session.orderData.phone, clientMessage);
+    await sendWhatsAppMessage(orderData.phone, clientMessage);
     console.log(`[NOTIFY] 🎉 Confirmação enviada para cliente via WhatsApp`);
   }
 }
 
-// 📱 ENVIAR MÚLTIPLAS MENSAGENS SEQUENCIAIS PARA TRANQUILIZAR
-async function sendMultipleClientUpdates(sessionId, restaurantMessage) {
+// 📱 ENVIAR MÚLTIPLAS MENSAGENS SEQUENCIAIS PARA TRANQUILIZAR - 🆕 USANDO NÚMERO DO CLIENTE
+async function sendMultipleClientUpdates(sessionId, restaurantMessage, orderData) {
   console.log(`[NOTIFY] 📱 Enviando atualizações sequenciais para cliente ${sessionId}`);
   
-  const session = sessions.get(sessionId);
-  if (session && session.orderData && session.orderData.phone) {
-    const clientPhone = session.orderData.phone;
+  // 🆕 USAR O NÚMERO DO CLIENTE DOS DADOS DO PEDIDO
+  if (orderData && orderData.phone) {
+    const clientPhone = orderData.phone;
+    console.log(`[NOTIFY] 📱 Enviando múltiplas mensagens para cliente: ${clientPhone}`);
     
     // Primeira mensagem
     await sendWhatsAppMessage(clientPhone, '🎉 Perfeito! Seu pedido foi confirmado pelo restaurante!');
@@ -433,17 +438,19 @@ async function sendMultipleClientUpdates(sessionId, restaurantMessage) {
   }
 }
 
-// 📊 NOTIFICAR CLIENTE SOBRE STATUS DO PEDIDO
-async function notifyClientOrderStatus(sessionId, statusMessage) {
+// 📊 NOTIFICAR CLIENTE SOBRE STATUS DO PEDIDO - 🆕 USANDO NÚMERO DO CLIENTE
+async function notifyClientOrderStatus(sessionId, statusMessage, orderData) {
   console.log(`[NOTIFY] 📊 Status para cliente ${sessionId}: ${statusMessage}`);
   
-  const session = sessions.get(sessionId);
-  if (session && session.orderData && session.orderData.phone) {
+  // 🆕 USAR O NÚMERO DO CLIENTE DOS DADOS DO PEDIDO
+  if (orderData && orderData.phone) {
+    console.log(`[NOTIFY] 📱 Enviando status para cliente: ${orderData.phone}`);
+    
     const fullMessage = `🍕 IA Fome: ${statusMessage}
 
 Qualquer novidade eu te aviso! 😊`;
     
-    await sendWhatsAppMessage(session.orderData.phone, fullMessage);
+    await sendWhatsAppMessage(orderData.phone, fullMessage);
     console.log(`[NOTIFY] 📊 Status enviado para cliente via WhatsApp`);
   }
 }
