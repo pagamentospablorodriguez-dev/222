@@ -56,26 +56,29 @@ PERSONALIDADE PÓS-PEDIDO:
 - Informativo sobre o processo
 - Atencioso às preocupações do cliente
 - Proativo em dar atualizações
+- SEMPRE menciona que vai avisar por WhatsApp também
 
 SITUAÇÃO ATUAL:
 - O pedido JÁ FOI ENVIADO para o restaurante
 - O cliente pode estar ansioso, com dúvidas, ou agradecendo
 - Você deve TRANQUILIZAR e INFORMAR sobre o próximo passo
+- SEMPRE mencione que mandará mensagens no WhatsApp do cliente para avisar
 
 RESPOSTAS APROPRIADAS:
-- Se cliente agradece: "De nada! Fico feliz em ajudar! 😊 O restaurante já está ciente do seu pedido."
-- Se cliente pergunta sobre tempo: "O tempo estimado é de X-Y minutos. Vou te avisar quando eles confirmarem!"
-- Se cliente tem dúvidas: "Tudo certo! O pedido foi enviado com sucesso e eles vão te responder em breve."
-- Se cliente quer cancelar: "Posso tentar cancelar para você. Deixe-me entrar em contato com eles."
+- Se cliente agradece: "De nada! Fico feliz em ajudar! 😊 O restaurante já está ciente do seu pedido. Vou te avisar aqui no chat e também pelo WhatsApp quando confirmarem!"
+- Se cliente pergunta sobre tempo: "O tempo estimado é de X-Y minutos. Vou te avisar aqui e também pelo WhatsApp quando eles confirmarem!"
+- Se cliente tem dúvidas: "Tudo certo! O pedido foi enviado com sucesso. Vou te manter atualizado aqui no chat e também pelo seu WhatsApp!"
+- Se cliente quer saber sobre WhatsApp: "Sim! Vou te avisar pelo seu WhatsApp também quando o restaurante responder. Fico de olho em tudo!"
 
 REGRAS:
 - NUNCA mostre restaurantes novamente
 - NUNCA inicie novo processo de coleta de dados
 - Seja empático e tranquilizador
+- SEMPRE mencione que avisará por WhatsApp do CLIENTE
 - Dê informações sobre o status quando possível
 - Se não souber algo específico, seja honesto
 
-LEMBRE-SE: O pedido JÁ foi enviado! Apenas tranquilize e informe o cliente.
+LEMBRE-SE: O pedido JÁ foi enviado! Apenas tranquilize e informe o cliente, SEMPRE mencionando WhatsApp.
 `;
 
 exports.handler = async (event, context) => {
@@ -114,7 +117,7 @@ exports.handler = async (event, context) => {
     const currentState = sessionStates.get(sessionId) || 'collecting_info';
     console.log(`[CHAT] 📊 Estado atual: ${currentState}`);
 
-    // 🆕 SE JÁ ENVIOU PEDIDO, USA PROMPT DIFERENTE
+    // 🆕 SE JÁ ENVIOU PEDIDO, USA PROMPT DIFERENTE COM MENÇÃO AO WHATSAPP
     if (currentState === 'order_sent') {
       console.log(`[CHAT] 📦 PEDIDO JÁ ENVIADO - Usando prompt pós-pedido`);
       
@@ -123,6 +126,7 @@ exports.handler = async (event, context) => {
       let context = POST_ORDER_PROMPT + "\n\n=== INFORMAÇÕES DO PEDIDO ENVIADO ===\n";
       context += `Restaurante: ${orderInfo.selectedRestaurant?.name || 'Restaurante selecionado'}\n`;
       context += `Comida: ${orderInfo.food || 'Pedido realizado'}\n`;
+      context += `WhatsApp do Cliente: ${orderInfo.phone || 'Informado'}\n`;
       context += `Status: Pedido enviado e aguardando confirmação\n\n`;
       
       context += "=== CONVERSA ATUAL ===\n";
@@ -204,7 +208,7 @@ exports.handler = async (event, context) => {
               statusCode: 200,
               headers,
               body: JSON.stringify({
-                message: `✅ PEDIDO ENVIADO para ${selectedRestaurant.name}!\n\n📞 ${selectedRestaurant.whatsapp}\n📍 ${selectedRestaurant.address}\n\n⏳ Aguardando confirmação...\n💰 ${selectedRestaurant.estimatedPrice}\n⏰ ${selectedRestaurant.estimatedTime}\n\nVou avisar quando responderem! 📱`,
+                message: `✅ PEDIDO ENVIADO para ${selectedRestaurant.name}!\n\n📞 ${selectedRestaurant.whatsapp}\n📍 ${selectedRestaurant.address}\n\n⏳ Aguardando confirmação...\n💰 ${selectedRestaurant.estimatedPrice}\n⏰ ${selectedRestaurant.estimatedTime}\n\nVou te avisar aqui no chat e também pelo seu WhatsApp (${extractedData.phone}) quando responderem! 📱✨`,
                 sessionId: sessionId
               })
             };
