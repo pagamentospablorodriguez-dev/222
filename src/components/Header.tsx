@@ -24,7 +24,9 @@ const Header: React.FC<HeaderProps> = ({ isInitialState }) => {
           className="flex items-center gap-3"
         >
           <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-accent-500 rounded-xl flex items-center justify-center shadow-lg animate-glow">
-            <ChefHat className="w-6 h-6 text-white" />
+            
+        <img src="/iafome.png" />
+            
           </div>
           <div>
             <h1 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary-600 to-accent-500 dark:from-primary-400 dark:to-accent-400">
