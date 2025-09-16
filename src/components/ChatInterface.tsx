@@ -99,14 +99,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
             <User className="w-5 h-5 text-white" />
           ) : (
             <>
-              <ChefHat className="w-5 h-5 text-white" />
-              <motion.div
-                className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-br from-secondary-400 to-secondary-500 rounded-full flex items-center justify-center shadow-lg"
-                animate={{ rotate: [0, 5, -5, 0] }}
-                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-              >
-                <Pizza className="w-2 h-2 text-white" />
-              </motion.div>
+              <img src="iafome.png" />
+              
             </>
           )}
         </div>
@@ -370,14 +364,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
           <div className="flex justify-start mb-6">
             <div className="flex max-w-[85%] sm:max-w-[75%]">
               <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-accent-500 to-accent-600 rounded-full flex items-center justify-center mr-3 shadow-lg animate-glow relative">
-                <ChefHat className="w-5 h-5 text-white" />
-                <motion.div
-                  className="absolute -top-1 -right-1 w-4 h-4 bg-gradient-to-br from-secondary-400 to-secondary-500 rounded-full flex items-center justify-center shadow-lg"
-                  animate={{ rotate: [0, 5, -5, 0] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                >
-                  <Pizza className="w-2 h-2 text-white" />
-                </motion.div>
+
+                
+                              <img src="iafome.png" />
+              
               </div>
               <div className="bg-white/90 dark:bg-dark-800/90 backdrop-blur-sm px-6 py-4 rounded-2xl shadow-lg border border-gray-200/50 dark:border-dark-700/50">
                 <div className="flex space-x-1">
