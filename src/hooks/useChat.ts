@@ -105,6 +105,7 @@ export const useChat = () => {
       status: 'sending'
     };
 
+    // 🔄 ADICIONAR A MENSAGEM DO USUÁRIO IMEDIATAMENTE
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
 
@@ -115,6 +116,9 @@ export const useChat = () => {
       setMessages(prev => prev.map(msg =>
         msg.id === userMessage.id ? { ...msg, status: 'sent' } : msg
       ));
+
+      // 🔄 AGUARDAR UM POUCO ANTES DE ENVIAR PARA BACKEND
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       // Enviar para backend com retry
       let attempts = 0;
@@ -150,6 +154,7 @@ export const useChat = () => {
       if (response?.success && response.data) {
         console.log('✅ Resposta recebida:', response.data.message.substring(0, 50));
         
+        // 🔄 GARANTIR QUE A RESPOSTA DA IA SEJA ADICIONADA AO CHAT
         const assistantMessage: Message = {
           id: uuidv4(),
           content: response.data.message,
@@ -159,6 +164,7 @@ export const useChat = () => {
         };
 
         setMessages(prev => [...prev, assistantMessage]);
+        console.log('✅ Mensagem da IA adicionada ao chat');
       } else {
         throw new Error(response?.error || 'Erro ao enviar mensagem');
       }
@@ -198,8 +204,8 @@ export const useChat = () => {
     localStorage.removeItem('ia-fome-messages');
     localStorage.removeItem('ia-fome-session-id');
     setMessages([]);
-    // Recarregar página para criar nova sessão
-    window.location.reload();
+    // 🔄 DISPARAR EVENTO PARA VOLTAR AO ESTADO INICIAL
+    window.dispatchEvent(new CustomEvent('ia-fome-new-session'));
   }, []);
 
   return {
