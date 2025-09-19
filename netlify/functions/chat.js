@@ -14,68 +14,99 @@ const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 const sessionStates = new Map();
 const orderData = new Map();
 
-// PROMPT PREMIUM
+// ✨ PROMPT PREMIUM DEFINITIVO - O MELHOR CONCIERGE DO MUNDO
 const SYSTEM_PROMPT = `
-Você é o IA Fome, o concierge particular PREMIUM de delivery mais exclusivo do mundo.
+Você é o IA Fome, o concierge pessoal PREMIUM de delivery mais exclusivo e profissional do Brasil.
 
-PERSONALIDADE:
-- Concierge 5 estrelas: atencioso, sofisticado, rápido
-- SEMPRE sugira bebidas, sobremesas, acompanhamentos
-- Direto ao ponto, sem enrolação
-- Focado em RESULTADOS
+🎩 PERSONALIDADE DEFINITIVA:
+- Concierge 5 estrelas: refinado, atencioso, eficiente
+- Cumprimente educadamente mas JÁ respondendo à solicitação
+- Chame de Sr./Srta. + NOME (pergunte o nome na primeira interação)
+- Seja DIRETO mas extremamente educado e profissional
+- SEMPRE ofereça sugestões inteligentes de acompanhamentos
+- Demonstre conhecimento especializado sobre gastronomia
+- Tranquilize o cliente durante todo o processo
 
-PROCESSO:
-1. PRIMEIRA INTERAÇÃO: "Olá! Sou o IA Fome, seu concierge pessoal de delivery. O que você gostaria de comer hoje? 🍕"
-2. COLETA: comida, endereço, WhatsApp, pagamento (uma pergunta por vez)
-3. BUSCA: "Perfeito! Buscando as melhores opções... ⏳"
-4. APRESENTE 3 opções numeradas
-5. CONFIRMAÇÃO: "Excelente escolha! Fazendo seu pedido..."
+🎯 PROCESSO INTELIGENTE:
+1️⃣ PRIMEIRA INTERAÇÃO: "Boa [tarde/noite]! Sou o IA Fome, seu concierge pessoal de delivery. Para oferecer o melhor atendimento, qual seu nome? E o que gostaria de saborear hoje?"
 
-REGRAS:
-- Mensagens curtas e práticas
-- UMA pergunta por vez
-- SEMPRE sugira bebidas/acompanhamentos
-- Com todas as informações, BUSQUE restaurantes
-- Seja honesto sobre o processo
+2️⃣ COLETA INTELIGENTE (uma pergunta por vez, mas eficiente):
+   • Nome do cliente
+   • Tipo de comida + detalhes específicos (ser MUITO inteligente aqui)
+   • Endereço completo
+   • WhatsApp
+   • Forma de pagamento
+   • Troco (se dinheiro)
 
-INFORMAÇÕES OBRIGATÓRIAS:
-✅ Comida + sugestão de bebida
-✅ Endereço completo
-✅ WhatsApp
-✅ Forma de pagamento
-✅ Troco (se dinheiro)
+3️⃣ INTELIGÊNCIA GASTRONÔMICA:
+   • PIZZA: "Perfeito, Sr. João! Qual sabor de pizza prefere? Temos tradicionais como Marguerita, Calabresa, ou algo mais especial como Portuguesa? E que tal uma bebida gelada para acompanhar?"
+   • HOT DOG: "Excelente escolha! Prefere completo (batata palha, milho, ervilha) ou tem alguma preferência específica? E uma bebida?"
+   • HAMBÚRGUER: "Ótima escolha! Prefere artesanal ou tradicional? Gostaria com bacon, queijo especial? E que tal batata e refrigerante?"
+   • SUSHI: "Sofisticado! Prefere combinados tradicionais ou tem alguma preferência específica (salmão, atum)? Hashi ou talher?"
 
-IMPORTANTE: NUNCA invente restaurantes! Sempre aguarde a busca real retornar as opções.
+4️⃣ CONFIRMAÇÃO PROFISSIONAL: "Perfeito, Sr./Srta. [NOME]! Recapitulando seu pedido: [PEDIDO DETALHADO]. Endereço: [ENDEREÇO]. Pagamento: [FORMA]. Está tudo correto? Gostaria de adicionar mais alguma coisa?"
+
+5️⃣ BUSCA: "Excelente! Localizando os melhores restaurantes na sua região... ⏳"
+
+6️⃣ APRESENTAÇÃO: [FORMATO ESPECIAL ABAIXO]
+
+7️⃣ TRANQUILIZAÇÃO PÓS-PEDIDO: "Perfeito, Sr./Srta. [NOME]! Seu pedido foi enviado com sucesso para [RESTAURANTE]! 🎉 Pode ficar tranquilo(a) que vou te manter informado(a) tanto aqui no chat quanto por WhatsApp sobre todas as atualizações. Em breve eles vão confirmar e começar o preparo. O tempo estimado é de [TEMPO]. Relaxe que está tudo sob meu controle! ✨"
+
+🍽️ INTELIGÊNCIA ESPECIALIZADA POR TIPO:
+- PIZZA: Sabores, tamanho, borda, bebidas
+- HAMBÚRGUER: Ponto da carne, adicionais, combos
+- HOT DOG: Tipo de salsicha, adicionais, molhos
+- SUSHI: Tipos de peixe, combinados, quantidades
+- AÇAÍ: Tamanho, acompanhamentos, coberturas
+- COMIDA BRASILEIRA: Acompanhamentos, temperos
+- FAST FOOD: Combos, tamanhos, bebidas
+
+💎 REGRAS DEFINITIVAS:
+- Mensagens elegantes mas concisas (máximo 3 linhas por pergunta)
+- UMA pergunta específica por vez
+- SEMPRE sugira acompanhamentos relevantes
+- Use o nome do cliente consistentemente
+- Seja proativo em resolver problemas
+- NUNCA invente restaurantes
+- Tranquilize durante esperas
+- Mencione notificações por WhatsApp sempre
+
+🎨 TOM DEFINITIVO:
+- Elegante mas acessível
+- Profissional mas caloroso
+- Eficiente mas atencioso
+- Confiante mas humilde
+- Especialista mas simpático
+
+LEMBRE-SE: Você é o MELHOR concierge de delivery do mundo. Cada interação deve ser uma experiência premium única!
 `;
 
 const POST_ORDER_PROMPT = `
-Você é o IA Fome e já enviou um pedido para um restaurante com sucesso.
+Você é o IA Fome, concierge premium, e já enviou um pedido com sucesso.
 
-PERSONALIDADE PÓS-PEDIDO:
-- Tranquilizador e confiante
-- Informativo sobre o processo
-- Atencioso às preocupações do cliente
-- Proativo em dar atualizações
+🎩 PERSONALIDADE PÓS-PEDIDO:
+- Tranquilizador e extremamente confiante
+- Use sempre Sr./Srta. + nome do cliente
+- Informe sobre notificações por WhatsApp
+- Seja proativo e atencioso
+- Mantenha o tom premium
 
-SITUAÇÃO ATUAL:
-- O pedido JÁ FOI ENVIADO para o restaurante
-- O cliente pode estar ansioso, com dúvidas, ou agradecendo
-- Você deve TRANQUILIZAR e INFORMAR sobre o próximo passo
+📱 SITUAÇÃO: O pedido JÁ FOI ENVIADO e confirmado pelo restaurante.
 
-RESPOSTAS APROPRIADAS:
-- Se cliente agradece: "De nada! Fico feliz em ajudar! 😊 O restaurante já está ciente do seu pedido."
-- Se cliente pergunta sobre tempo: "O tempo estimado é de X-Y minutos. Vou te avisar quando eles confirmarem!"
-- Se cliente tem dúvidas: "Tudo certo! O pedido foi enviado com sucesso e eles vão te responder em breve."
-- Se cliente quer cancelar: "Posso tentar cancelar para você. Deixe-me entrar em contato com eles."
+✨ RESPOSTAS PREMIUM:
+- Agradecimentos: "De nada, Sr./Srta. [NOME]! É um prazer cuidar do seu pedido! 😊 Vou te manter informado(a) tanto aqui quanto por WhatsApp."
+- Dúvidas de tempo: "Claro! O tempo estimado continua sendo [X] minutos. Te aviso por WhatsApp quando sair para entrega!"
+- Preocupações: "Fique tranquilo(a), Sr./Srta. [NOME]! Tudo está correndo perfeitamente. O restaurante confirmou e está preparando seu pedido."
+- Status: "Seu pedido está [STATUS]. Te notificarei por WhatsApp assim que houver atualizações!"
 
 REGRAS:
-- NUNCA mostre restaurantes novamente
-- NUNCA inicie novo processo de coleta de dados
-- Seja empático e tranquilizador
-- Dê informações sobre o status quando possível
-- Se não souber algo específico, seja honesto
+- SEMPRE use o nome do cliente
+- SEMPRE mencione notificações por WhatsApp
+- Seja tranquilizador e confiante
+- Mantenha a elegância
+- NÃO mostre restaurantes novamente
 
-LEMBRE-SE: O pedido JÁ foi enviado! Apenas tranquilize e informe o cliente.
+O cliente deve se sentir completamente cuidado e tranquilo!
 `;
 
 exports.handler = async (event, context) => {
@@ -121,9 +152,10 @@ exports.handler = async (event, context) => {
       const orderInfo = orderData.get(sessionId) || {};
       
       let context = POST_ORDER_PROMPT + "\n\n=== INFORMAÇÕES DO PEDIDO ENVIADO ===\n";
+      context += `Cliente: ${orderInfo.clientName || 'Cliente'}\n`;
       context += `Restaurante: ${orderInfo.selectedRestaurant?.name || 'Restaurante selecionado'}\n`;
       context += `Comida: ${orderInfo.food || 'Pedido realizado'}\n`;
-      context += `Status: Pedido enviado e aguardando confirmação\n\n`;
+      context += `Status: Pedido enviado e confirmado\n\n`;
       
       context += "=== CONVERSA ATUAL ===\n";
       messages.slice(-3).forEach(msg => {
@@ -147,8 +179,8 @@ exports.handler = async (event, context) => {
       };
     }
 
-    // Extrair dados diretamente das mensagens
-    const extractedData = extractOrderFromMessages(messages, message);
+    // 🧠 EXTRAIR DADOS COM INTELIGÊNCIA MELHORADA
+    const extractedData = extractOrderFromMessagesIntelligent(messages, message);
     console.log(`[CHAT] 📊 Dados extraídos:`, extractedData);
 
     // Verificar se temos todas as informações OBRIGATÓRIAS
@@ -156,21 +188,16 @@ exports.handler = async (event, context) => {
                          extractedData.address && 
                          extractedData.phone && 
                          extractedData.paymentMethod &&
+                         extractedData.clientName &&
                          (extractedData.paymentMethod !== 'dinheiro' || extractedData.change));
 
     console.log(`[CHAT] ✅ Info completa: ${hasAllInfo}`);
-    console.log(`[CHAT] 🔍 Detalhes:`, {
-      food: !!extractedData.food,
-      address: !!extractedData.address,
-      phone: !!extractedData.phone,
-      payment: !!extractedData.paymentMethod
-    });
 
-    // 🔥 DETECÇÃO: Se cliente escolheu restaurante (1, 2 ou 3) E não estava em estado order_sent
+    // 🔥 DETECÇÃO: Se cliente escolheu restaurante
     const isRestaurantChoice = /^[123]$/.test(message.trim());
     const previouslySearchedRestaurants = messages.some(msg => 
       msg.role === 'assistant' && 
-      (msg.content.includes('Encontrei') || msg.content.includes('restaurantes REAIS')) &&
+      (msg.content.includes('🏆') || msg.content.includes('melhores opções')) &&
       msg.content.match(/[123]\.\s*\*\*/g)
     );
 
@@ -194,17 +221,19 @@ exports.handler = async (event, context) => {
           });
           
           // FAZER PEDIDO REAL IMEDIATAMENTE!
-          const orderSent = await makeOrderImmediately(extractedData, selectedRestaurant);
+          const orderSent = await makeOrderImmediately(extractedData, selectedRestaurant, sessionId);
           
           if (orderSent) {
             // 🆕 ATUALIZAR ESTADO DA SESSÃO
             sessionStates.set(sessionId, 'order_sent');
             
+            const clientName = extractedData.clientName || 'Cliente';
+            
             return {
               statusCode: 200,
               headers,
               body: JSON.stringify({
-                message: `✅ PEDIDO ENVIADO para ${selectedRestaurant.name}!\n\n📞 ${selectedRestaurant.whatsapp}\n📍 ${selectedRestaurant.address}\n\n⏳ Aguardando confirmação...\n💰 ${selectedRestaurant.estimatedPrice}\n⏰ ${selectedRestaurant.estimatedTime}\n\nVou avisar quando responderem! 📱`,
+                message: `🎉 Perfeito, ${clientName}! Seu pedido foi enviado com sucesso para **${selectedRestaurant.name}**!\n\n📱 Pode ficar tranquilo(a) que vou te manter informado(a) tanto aqui no chat quanto por **WhatsApp** sobre todas as atualizações!\n\n⏰ **Tempo estimado**: ${selectedRestaurant.estimatedTime}\n💰 **Valor estimado**: ${selectedRestaurant.estimatedPrice}\n\n🔔 Em breve eles vão confirmar e começar o preparo. Te aviso por WhatsApp quando houver novidades!\n\nRelaxe que está tudo sob meu controle! ✨`,
                 sessionId: sessionId
               })
             };
@@ -213,7 +242,7 @@ exports.handler = async (event, context) => {
               statusCode: 200,
               headers,
               body: JSON.stringify({
-                message: `😔 Erro ao contatar ${selectedRestaurant.name}.\n\nPode tentar outro ou aguarde alguns minutos.\n\nQual prefere?`,
+                message: `😔 ${extractedData.clientName || 'Cliente'}, houve um problema ao contatar ${selectedRestaurant.name}.\n\nPode escolher outro restaurante ou aguarde alguns minutos que tentarei novamente.\n\nQual prefere?`,
                 sessionId: sessionId
               })
             };
@@ -233,22 +262,24 @@ exports.handler = async (event, context) => {
 
     // 🚀 SE TEMOS TODAS AS INFORMAÇÕES, BUSCAR RESTAURANTES AUTOMATICAMENTE!
     if (hasAllInfo && currentState !== 'order_sent') {
-      console.log(`[CHAT] 🔍 TODAS INFORMAÇÕES COLETADAS - BUSCANDO RESTAURANTES AUTOMATICAMENTE!`);
+      console.log(`[CHAT] 🔍 TODAS INFORMAÇÕES COLETADAS - BUSCANDO RESTAURANTES!`);
       
       const restaurants = await searchRealRestaurantsAPI(extractedData);
       
       if (restaurants && restaurants.length > 0) {
-        let restaurantsList = "🍕 Encontrei restaurantes REAIS na sua região:\n\n";
-        restaurants.forEach((rest, index) => {
-          restaurantsList += `${index + 1}. **${rest.name}**\n`;
-          restaurantsList += `   📞 ${rest.whatsapp}\n`;
-          restaurantsList += `   📍 ${rest.address}\n`;
-          restaurantsList += `   ⭐ ${rest.rating}/5 • ${rest.estimatedTime}\n`;
-          restaurantsList += `   💰 ${rest.estimatedPrice}\n\n`;
-        });
-        restaurantsList += "Digite o NÚMERO da sua escolha (1, 2 ou 3)! 🎯";
+        const clientName = extractedData.clientName || 'Cliente';
+        let restaurantsList = `🏆 Perfeito, ${clientName}! Encontrei as **melhores opções** na sua região:\n\n`;
         
-        console.log(`[CHAT] 🎉 RETORNANDO RESTAURANTES REAIS AUTOMATICAMENTE!`);
+        restaurants.forEach((rest, index) => {
+          restaurantsList += `**${index + 1}. ${rest.name}** ⭐ ${rest.rating}/5\n`;
+          restaurantsList += `   ⏰ ${rest.estimatedTime} • 💰 ${rest.estimatedPrice}\n`;
+          restaurantsList += `   📍 ${rest.address}\n`;
+          restaurantsList += `   📱 WhatsApp: ${rest.whatsapp}\n\n`;
+        });
+        
+        restaurantsList += `🎯 **Digite o número da sua escolha (1, 2 ou 3)** para eu fazer seu pedido imediatamente!\n\nQual prefere, ${clientName}?`;
+        
+        console.log(`[CHAT] 🎉 RETORNANDO RESTAURANTES REAIS!`);
         
         return {
           statusCode: 200,
@@ -263,7 +294,7 @@ exports.handler = async (event, context) => {
           statusCode: 200,
           headers,
           body: JSON.stringify({
-            message: "😔 Não encontrei restaurantes com WhatsApp na sua região.\n\nPode tentar outro tipo de comida ou me dar mais detalhes da sua localização?",
+            message: `😔 ${extractedData.clientName || 'Cliente'}, não encontrei restaurantes disponíveis na sua região no momento.\n\nPoderia tentar outro tipo de comida ou me dar mais detalhes da sua localização?`,
             sessionId: sessionId
           })
         };
@@ -272,12 +303,21 @@ exports.handler = async (event, context) => {
 
     // Construir contexto para IA (só se não tiver todas as informações)
     let context = SYSTEM_PROMPT + "\n\n=== DADOS COLETADOS ===\n";
+    context += `Nome: ${extractedData.clientName || 'Não informado'}\n`;
     context += `Comida: ${extractedData.food || 'Não informado'}\n`;
     context += `Endereço: ${extractedData.address || 'Não informado'}\n`;
     context += `Cidade: ${extractedData.city || 'Não informado'}\n`;
     context += `WhatsApp: ${extractedData.phone || 'Não informado'}\n`;
     context += `Pagamento: ${extractedData.paymentMethod || 'Não informado'}\n`;
     context += `Troco: ${extractedData.change || 'Não informado'}\n\n`;
+    
+    // Determinar período do dia para cumprimento
+    const hour = new Date().getHours();
+    let greeting = 'Boa noite';
+    if (hour >= 5 && hour < 12) greeting = 'Bom dia';
+    else if (hour >= 12 && hour < 18) greeting = 'Boa tarde';
+    
+    context += `Período: ${greeting}\n\n`;
     
     context += "=== CONVERSA ===\n";
     messages.forEach(msg => {
@@ -310,64 +350,8 @@ exports.handler = async (event, context) => {
   }
 };
 
-// 🔍 BUSCAR RESTAURANTES VIA API REAL
-async function searchRealRestaurantsAPI(extractedData) {
-  try {
-    console.log(`[API] 🔍 BUSCANDO VIA API REAL...`);
-    console.log(`[API] 📊 OrderData:`, extractedData);
-    
-    // Usar a cidade já extraída ou fallback
-    const city = extractedData.city || 'Volta Redonda';
-    
-    console.log(`[API] 📍 Cidade para busca: ${city}`);
-    console.log(`[API] 🍕 Comida original: ${extractedData.food}`);
-    console.log(`[API] 🍕 Comida limpa: ${extractedData.foodType}`);
-    
-    // Chamar nossa API de busca INTERNA (mesma instância)
-    const apiUrl = `${process.env.URL || 'https://iafome.netlify.app'}/.netlify/functions/search-restaurants`;
-    
-    console.log(`[API] 🌐 Chamando: ${apiUrl}`);
-    
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        food: extractedData.foodType || 'pizza', // USAR TIPO LIMPO
-        city: city,
-        state: 'RJ'
-      })
-    });
-    
-    console.log(`[API] 📊 Status da resposta: ${response.status}`);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[API] ❌ Erro ${response.status}: ${errorText}`);
-      throw new Error(`API Error: ${response.status} - ${errorText}`);
-    }
-    
-    const data = await response.json();
-    console.log(`[API] 📋 Resposta:`, data);
-    
-    if (data.success && data.restaurants && data.restaurants.length > 0) {
-      console.log(`[API] ✅ ${data.restaurants.length} restaurantes encontrados!`);
-      return data.restaurants;
-    } else {
-      console.log(`[API] ❌ Nenhum restaurante encontrado - Detalhes:`, data);
-      return [];
-    }
-    
-  } catch (error) {
-    console.error(`[API] ❌ Erro crítico na busca:`, error);
-    return [];
-  }
-}
-
-// Extrair dados do pedido de TODAS as mensagens
-function extractOrderFromMessages(messages, currentMessage) {
-  // Combinar APENAS mensagens do usuário
+// 🧠 EXTRAÇÃO INTELIGENTE MELHORADA
+function extractOrderFromMessagesIntelligent(messages, currentMessage) {
   const userMessages = messages
     .filter(msg => msg.role === 'user')
     .map(msg => msg.content)
@@ -375,11 +359,10 @@ function extractOrderFromMessages(messages, currentMessage) {
   
   const allUserText = `${userMessages} ${currentMessage}`.toLowerCase();
   
-  console.log(`[EXTRACT] 🔍 Texto completo do usuário: ${allUserText.substring(0, 200)}...`);
-  
   const extractedData = {
+    clientName: null,
     food: null,
-    foodType: null, // NOVO: tipo limpo de comida
+    foodType: null,
     address: null,
     city: null,
     phone: null,
@@ -387,42 +370,66 @@ function extractOrderFromMessages(messages, currentMessage) {
     change: null
   };
 
-  // Extrair COMIDA - MELHORADO para extrair tipo correto
-  const foodKeywords = [
-    { keyword: 'pizza', type: 'pizza' },
-    { keyword: 'hamburguer', type: 'hamburguer' },
-    { keyword: 'hamburger', type: 'hamburguer' },
-    { keyword: 'sushi', type: 'sushi' },
-    { keyword: 'lanche', type: 'lanche' },
-    { keyword: 'combo', type: 'lanche' },
-    { keyword: 'sanduiche', type: 'lanche' },
-    { keyword: 'pastel', type: 'pastel' },
-    { keyword: 'açaí', type: 'açaí' }
+  // 👤 EXTRAIR NOME - MELHORADO
+  const namePatterns = [
+    /(?:meu nome é|me chamo|sou o|sou a|eu sou)\s+([a-záêçõãíé\s]+)(?:\s|$|\.)/i,
+    /nome:?\s*([a-záêçõãíé\s]+)(?:\s|$|\.)/i,
+    /^([a-záêçõãíé]+)\s*(?:,|$)/i  // Primeira palavra se for só um nome
   ];
   
-  for (const { keyword, type } of foodKeywords) {
-    if (allUserText.includes(keyword)) {
-      // Buscar a mensagem que contém a comida
-      const userMessagesWithCurrent = [...messages.filter(msg => msg.role === 'user').map(m => m.content), currentMessage];
+  for (const pattern of namePatterns) {
+    const match = allUserText.match(pattern);
+    if (match && match[1]) {
+      const name = match[1].trim()
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ')
+        .substring(0, 30); // Limitar tamanho
       
-      for (const msg of userMessagesWithCurrent) {
-        if (msg.toLowerCase().includes(keyword)) {
-          extractedData.food = msg; // Mensagem completa
-          extractedData.foodType = type; // Tipo limpo
-          console.log(`[EXTRACT] 🍕 Comida encontrada: ${keyword} -> ${type}`);
-          break;
-        }
+      if (name.length >= 2 && !name.match(/\d/)) {
+        extractedData.clientName = name;
+        break;
       }
-      break;
     }
   }
 
-  // Extrair ENDEREÇO E CIDADE
+  // 🍕 EXTRAIR COMIDA - INTELIGENTE
+  const foodKeywords = [
+    { keywords: ['pizza'], type: 'pizza' },
+    { keywords: ['hamburguer', 'hamburger', 'burger'], type: 'hamburguer' },
+    { keywords: ['hot dog', 'hotdog', 'cachorro quente'], type: 'hot dog' },
+    { keywords: ['sushi', 'sashimi', 'temaki'], type: 'sushi' },
+    { keywords: ['lanche', 'sanduiche', 'combo'], type: 'lanche' },
+    { keywords: ['pastel'], type: 'pastel' },
+    { keywords: ['açaí'], type: 'açaí' },
+    { keywords: ['churrasco', 'carne'], type: 'churrasco' },
+    { keywords: ['comida chinesa', 'yakisoba'], type: 'chinesa' },
+    { keywords: ['pizza', 'esfiha'], type: 'pizza' }
+  ];
+  
+  for (const { keywords, type } of foodKeywords) {
+    for (const keyword of keywords) {
+      if (allUserText.includes(keyword)) {
+        const userMessagesWithCurrent = [...messages.filter(msg => msg.role === 'user').map(m => m.content), currentMessage];
+        
+        for (const msg of userMessagesWithCurrent) {
+          if (msg.toLowerCase().includes(keyword)) {
+            extractedData.food = msg;
+            extractedData.foodType = type;
+            console.log(`[EXTRACT] 🍕 Comida: ${keyword} -> ${type}`);
+            break;
+          }
+        }
+        break;
+      }
+    }
+    if (extractedData.foodType) break;
+  }
+
+  // 📍 EXTRAIR ENDEREÇO E CIDADE - MELHORADO
   const addressPatterns = [
-    /(?:rua|avenida|av\.?|r\.?)\s+[^,\n]+(?:,?\s*n?\.?\s*\d+)?(?:,\s*[^,\n]+)*/i,
-    /entregar?\s+em:?\s*([^.\n]+)/i,
-    /endere[çc]o:?\s*([^.\n]+)/i,
-    /para\s+entregar\s+em\s+([^.\n]+)/i
+    /(?:endere[çc]o:?\s*|entregar?\s+(?:em|no|na):?\s*|moro\s+(?:em|no|na)\s*)([^.\n]+)/i,
+    /(?:rua|avenida|av\.?|r\.?)\s+[^,\n]+(?:,?\s*n?\.?\s*\d+)?(?:,\s*[^,\n]+)*/i
   ];
   
   for (const pattern of addressPatterns) {
@@ -430,14 +437,14 @@ function extractOrderFromMessages(messages, currentMessage) {
     if (match) {
       extractedData.address = match[0];
       
-      // Extrair cidade do endereço - MELHORADO
+      // Extrair cidade - MELHORADO com mais cidades
       const addressText = match[0].toLowerCase();
       
-      // Procurar por cidades conhecidas
       const knownCities = [
-        'volta redonda', 'rio de janeiro', 'niterói', 'são paulo', 
-        'belo horizonte', 'brasília', 'salvador', 'fortaleza',
-        'recife', 'curitiba', 'porto alegre', 'goiânia'
+        'volta redonda', 'rio de janeiro', 'niterói', 'são paulo', 'belo horizonte',
+        'brasília', 'salvador', 'fortaleza', 'recife', 'curitiba', 'porto alegre',
+        'goiânia', 'campinas', 'santos', 'sorocaba', 'ribeirão preto', 'são josé dos campos',
+        'uberlândia', 'contagem', 'feira de santana', 'joinville', 'londrina', 'maringá'
       ];
       
       for (const city of knownCities) {
@@ -449,38 +456,19 @@ function extractOrderFromMessages(messages, currentMessage) {
         }
       }
       
-      // Se não encontrou cidade conhecida, tentar última parte LIMPA do endereço
       if (!extractedData.city) {
-        const cleanAddress = extractedData.address.replace(/para pagar no cartão|vou pagar no cartão/gi, '');
-        const parts = cleanAddress.split(',').map(part => part.trim());
-        
-        for (const part of parts.reverse()) {
-          if (part && 
-              !part.match(/\d+/) && 
-              part.length > 2 && 
-              !part.match(/^(rua|avenida|av|r|n|jardim)$/i) &&
-              !part.includes('pagar') &&
-              !part.includes('cartão')) {
-            extractedData.city = part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
-            break;
-          }
-        }
-      }
-      
-      // Fallback para Volta Redonda
-      if (!extractedData.city) {
-        extractedData.city = 'Volta Redonda';
+        extractedData.city = 'Volta Redonda'; // Fallback
       }
       
       break;
     }
   }
 
-  // Extrair TELEFONE - MELHORADO
+  // 📱 EXTRAIR TELEFONE - MELHORADO
   const phonePatterns = [
-    /(\d{2})\s+(\d{9})/g,  // 24 999325986
-    /(\d{2})\s+(\d{4,5})[\s-]?(\d{4})/g,  // 24 9993-25986 ou 24 99932-5986
-    /(\d{10,11})(?!\d)/g  // 24999325986 (não parte de número maior)
+    /(?:whatsapp|telefone|contato|número).*?(\d{2})\s*(\d{9})/i,
+    /(\d{2})\s+(\d{4,5})[\s-]?(\d{4})/g,
+    /(\d{10,11})(?!\d)/g
   ];
   
   for (const pattern of phonePatterns) {
@@ -490,7 +478,6 @@ function extractOrderFromMessages(messages, currentMessage) {
         const cleanPhone = match.replace(/\D/g, '');
         if (cleanPhone.length >= 10 && cleanPhone.length <= 11) {
           extractedData.phone = cleanPhone;
-          console.log(`[EXTRACT] 📱 Telefone encontrado: ${cleanPhone}`);
           break;
         }
       }
@@ -498,7 +485,7 @@ function extractOrderFromMessages(messages, currentMessage) {
     }
   }
 
-  // Extrair PAGAMENTO
+  // 💳 EXTRAIR PAGAMENTO
   if (allUserText.includes('cartão') || allUserText.includes('cartao')) {
     extractedData.paymentMethod = 'cartão';
   } else if (allUserText.includes('dinheiro') || allUserText.includes('espécie')) {
@@ -507,41 +494,102 @@ function extractOrderFromMessages(messages, currentMessage) {
     extractedData.paymentMethod = 'pix';
   }
 
-  // Extrair TROCO
+  // 💰 EXTRAIR TROCO
   const changeMatch = allUserText.match(/troco.*?(\d+)/i);
   if (changeMatch) {
     extractedData.change = changeMatch[1];
   }
 
-  console.log(`[EXTRACT] 📝 Dados extraídos finais:`, extractedData);
+  console.log(`[EXTRACT] 📝 Dados extraídos:`, extractedData);
   return extractedData;
 }
 
-// 📞 FAZER PEDIDO IMEDIATAMENTE
-async function makeOrderImmediately(extractedData, restaurant) {
+// 🔍 BUSCAR RESTAURANTES VIA API REAL - ADAPTADO PARA QUALQUER CIDADE
+async function searchRealRestaurantsAPI(extractedData) {
   try {
-    console.log(`[PEDIDO] 📞 FAZENDO PEDIDO REAL AGORA!`);
-    console.log(`[PEDIDO] 🏪 Restaurante: ${restaurant.name}`);
-    console.log(`[PEDIDO] 📱 WhatsApp: ${restaurant.whatsapp}`);
+    console.log(`[API] 🔍 BUSCANDO VIA API REAL...`);
+    
+    const city = extractedData.city || 'Volta Redonda';
+    const foodType = extractedData.foodType || 'pizza';
+    
+    console.log(`[API] 📍 Cidade: ${city}, Comida: ${foodType}`);
+    
+    const apiUrl = `${process.env.URL || 'https://iafome.netlify.app'}/.netlify/functions/search-restaurants`;
+    
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        food: foodType,
+        city: city,
+        state: 'RJ'
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.success && data.restaurants && data.restaurants.length > 0) {
+      console.log(`[API] ✅ ${data.restaurants.length} restaurantes encontrados!`);
+      return data.restaurants;
+    } else {
+      console.log(`[API] ❌ Nenhum restaurante encontrado`);
+      return [];
+    }
+    
+  } catch (error) {
+    console.error(`[API] ❌ Erro na busca:`, error);
+    return [];
+  }
+}
 
-    // Limpar endereço para pedido
+// 📞 FAZER PEDIDO IMEDIATAMENTE - MELHORADO COM DADOS DO PEDIDO SALVOS
+async function makeOrderImmediately(extractedData, restaurant, sessionId) {
+  try {
+    console.log(`[PEDIDO] 📞 FAZENDO PEDIDO REAL!`);
+    
+    // 🆕 SALVAR DADOS COMPLETOS DO PEDIDO PARA O WEBHOOK
+    const completeOrderData = {
+      sessionId: sessionId,
+      orderData: extractedData, // Dados do cliente
+      restaurant: restaurant,   // Dados do restaurante
+      status: 'sent',
+      timestamp: new Date().toISOString()
+    };
+
+    // Salvar no Map global para o webhook acessar
+    const orders = global.orders || (global.orders = new Map());
+    orders.set(sessionId, completeOrderData);
+    
+    console.log(`[PEDIDO] 💾 Dados salvos para sessão: ${sessionId}`);
+    console.log(`[PEDIDO] 🏪 Restaurante: ${restaurant.name} - ${restaurant.whatsapp}`);
+
     let cleanAddress = extractedData.address;
     if (cleanAddress) {
       cleanAddress = cleanAddress
-        .replace(/r em /gi, '')
         .replace(/para pagar no cartão|vou pagar no cartão/gi, '')
         .replace(/\s+/g, ' ')
         .trim();
     }
 
-    // Criar mensagem realista
-    const orderMessage = `Oi, tudo bem? Gostaria de fazer um pedido para entrega: ${extractedData.food}, endereço: ${cleanAddress}, forma de pagamento: ${extractedData.paymentMethod}${extractedData.change ? ` (Troco para R$ ${extractedData.change})` : ''}
+    const clientName = extractedData.clientName || 'Cliente';
+    const orderMessage = `Oi, tudo bem? Sou o ${clientName} e gostaria de fazer um pedido para entrega:
 
-Poderiam me confirmar o valor total e o tempo de entrega por favor? Obrigado! 🙏`;
+🍕 **Pedido**: ${extractedData.food}
+📍 **Endereço**: ${cleanAddress}
+💳 **Pagamento**: ${extractedData.paymentMethod}${extractedData.change ? ` (Troco para R$ ${extractedData.change})` : ''}
 
-    console.log(`[PEDIDO] 📝 MENSAGEM PREPARADA`);
+Poderiam me confirmar o valor total e o tempo de entrega, por favor?
 
-    // ENVIAR VIA EVOLUTION
+Obrigado! 🙏`;
+
+    console.log(`[PEDIDO] 📝 Enviando pedido...`);
+    
     const success = await sendWhatsAppReal(restaurant.whatsapp, orderMessage);
     
     if (success) {
@@ -561,23 +609,13 @@ Poderiam me confirmar o valor total e o tempo de entrega por favor? Obrigado! �
 // 📱 ENVIAR WHATSAPP REAL
 async function sendWhatsAppReal(phone, message) {
   try {
-    console.log(`[WHATSAPP] 📱 ENVIANDO PARA: ${phone}`);
-    
     if (!EVOLUTION_BASE_URL || !EVOLUTION_TOKEN || !EVOLUTION_INSTANCE_ID) {
-      console.error(`[WHATSAPP] ❌ VARIÁVEIS DE AMBIENTE FALTANDO!`);
+      console.error(`[WHATSAPP] ❌ Configurações faltando!`);
       return false;
     }
 
     const cleanPhone = phone.replace(/\D/g, '');
     const url = `${EVOLUTION_BASE_URL}/message/sendText/${EVOLUTION_INSTANCE_ID}`;
-    
-    console.log(`[WHATSAPP] 🌐 URL: ${url}`);
-    console.log(`[WHATSAPP] 📞 Telefone limpo: ${cleanPhone}`);
-
-    const payload = {
-      number: cleanPhone,
-      text: message
-    };
 
     const response = await fetch(url, {
       method: 'POST',
@@ -585,18 +623,17 @@ async function sendWhatsAppReal(phone, message) {
         'Content-Type': 'application/json',
         'apikey': EVOLUTION_TOKEN
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        number: cleanPhone,
+        text: message
+      })
     });
 
-    console.log(`[WHATSAPP] 📊 Status: ${response.status}`);
-
     if (response.ok) {
-      const result = await response.text();
-      console.log(`[WHATSAPP] ✅ SUCESSO! Resposta: ${result.substring(0, 100)}...`);
+      console.log(`[WHATSAPP] ✅ Mensagem enviada!`);
       return true;
     } else {
-      const error = await response.text();
-      console.error(`[WHATSAPP] ❌ ERRO ${response.status}: ${error}`);
+      console.error(`[WHATSAPP] ❌ Erro ${response.status}`);
       return false;
     }
     
