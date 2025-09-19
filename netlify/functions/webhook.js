@@ -10,10 +10,9 @@ const EVOLUTION_INSTANCE_ID = process.env.VITE_EVOLUTION_INSTANCE_ID;
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-// 🗄️ ARMAZENAMENTO EM MEMÓRIA COMPARTILHADO (usar base de dados real em produção)
-const sessions = new Map();
-const orders = new Map();
-const restaurantConversations = new Map();
+// 🗄️ ARMAZENAMENTO EM MEMÓRIA COMPARTILHADO GLOBAL
+if (!global.orders) global.orders = new Map();
+if (!global.restaurantConversations) global.restaurantConversations = new Map();
 
 // 🎭 PROMPT PARA RESPONDER COMO CLIENTE HUMANO
 const CLIENT_RESPONSE_PROMPT = `
@@ -84,14 +83,21 @@ exports.handler = async (event, context) => {
 
         console.log(`[WEBHOOK] 📱 Mensagem recebida de ${phoneNumber}: ${messageText}`);
 
-        // Verificar se é resposta de um restaurante
-        const order = findOrderByRestaurantPhone(phoneNumber);
+        // 🔍 BUSCAR PEDIDO USANDO COMPARAÇÃO MAIS FLEXÍVEL
+        const order = findOrderByRestaurantPhoneFlexible(phoneNumber);
         
         if (order) {
-          console.log(`[WEBHOOK] 🍕 Mensagem é de restaurante! Processando...`);
+          console.log(`[WEBHOOK] 🍕 RESTAURANTE ENCONTRADO! Processando resposta...`);
           await handleRestaurantResponse(order, messageText, phoneNumber);
         } else {
-          console.log(`[WEBHOOK] ⏭️ Mensagem não é de restaurante conhecido`);
+          console.log(`[WEBHOOK] ❌ Nenhum pedido encontrado para telefone: ${phoneNumber}`);
+          console.log(`[WEBHOOK] 📊 Pedidos ativos: ${global.orders.size}`);
+          
+          // Log de debug dos pedidos ativos
+          for (const [sessionId, orderData] of global.orders) {
+            const restPhone = orderData.restaurant?.whatsapp?.replace(/\D/g, '') || 'sem telefone';
+            console.log(`[WEBHOOK] 🔍 Pedido ${sessionId}: ${restPhone}`);
+          }
         }
       } else {
         console.log(`[WEBHOOK] ⏭️ Mensagem enviada por nós, ignorando`);
@@ -116,21 +122,55 @@ exports.handler = async (event, context) => {
   }
 };
 
-// 🔍 ENCONTRAR PEDIDO PELO TELEFONE DO RESTAURANTE
-function findOrderByRestaurantPhone(phone) {
+// 🔍 ENCONTRAR PEDIDO PELO TELEFONE DO RESTAURANTE - VERSÃO FLEXÍVEL
+function findOrderByRestaurantPhoneFlexible(phone) {
   console.log(`[WEBHOOK] 🔍 Procurando pedido para telefone: ${phone}`);
   
-  // Limpar formato do telefone para comparação
+  // Limpar formato do telefone para comparação (remover TUDO que não é número)
   const cleanPhone = phone.replace(/\D/g, '');
+  console.log(`[WEBHOOK] 🧹 Telefone limpo: ${cleanPhone}`);
   
-  for (const [sessionId, order] of orders) {
+  for (const [sessionId, order] of global.orders) {
     if (order.restaurant && order.restaurant.whatsapp) {
       const cleanRestaurantPhone = order.restaurant.whatsapp.replace(/\D/g, '');
-      console.log(`[WEBHOOK] 🔍 Comparando ${cleanPhone} com ${cleanRestaurantPhone}`);
       
+      console.log(`[WEBHOOK] 🔍 Comparando:`);
+      console.log(`[WEBHOOK] 📱 Recebido: "${cleanPhone}" (${cleanPhone.length} dígitos)`);
+      console.log(`[WEBHOOK] 🏪 Restaurante: "${cleanRestaurantPhone}" (${cleanRestaurantPhone.length} dígitos)`);
+      
+      // ✨ COMPARAÇÃO FLEXÍVEL - permitir diferentes formatos
       if (cleanRestaurantPhone === cleanPhone) {
-        console.log(`[WEBHOOK] ✅ Pedido encontrado para sessão: ${sessionId}`);
+        console.log(`[WEBHOOK] ✅ MATCH EXATO! Sessão: ${sessionId}`);
         return { ...order, sessionId };
+      }
+      
+      // Se o número recebido tem menos dígitos, pode ser sem o código do país
+      if (cleanPhone.length < cleanRestaurantPhone.length) {
+        const restaurantWithoutCountryCode = cleanRestaurantPhone.substring(2); // Remove 55
+        if (restaurantWithoutCountryCode === cleanPhone) {
+          console.log(`[WEBHOOK] ✅ MATCH SEM CÓDIGO DO PAÍS! Sessão: ${sessionId}`);
+          return { ...order, sessionId };
+        }
+      }
+      
+      // Se o número do restaurante tem menos dígitos
+      if (cleanRestaurantPhone.length < cleanPhone.length) {
+        const phoneWithoutCountryCode = cleanPhone.substring(2); // Remove 55
+        if (cleanRestaurantPhone === phoneWithoutCountryCode) {
+          console.log(`[WEBHOOK] ✅ MATCH REMOVENDO CÓDIGO DO RECEBIDO! Sessão: ${sessionId}`);
+          return { ...order, sessionId };
+        }
+      }
+      
+      // Comparação por sufixo (últimos 9 dígitos - número do celular)
+      if (cleanPhone.length >= 9 && cleanRestaurantPhone.length >= 9) {
+        const phoneSuffix = cleanPhone.slice(-9);
+        const restaurantSuffix = cleanRestaurantPhone.slice(-9);
+        
+        if (phoneSuffix === restaurantSuffix) {
+          console.log(`[WEBHOOK] ✅ MATCH POR SUFIXO! Sessão: ${sessionId}`);
+          return { ...order, sessionId };
+        }
       }
     }
   }
@@ -149,7 +189,7 @@ async function handleRestaurantResponse(order, messageText, restaurantPhone) {
     const sessionId = order.sessionId;
     
     // Obter conversa existente com o restaurante
-    let conversation = restaurantConversations.get(sessionId) || [];
+    let conversation = global.restaurantConversations.get(sessionId) || [];
     
     // Adicionar mensagem do restaurante à conversa
     conversation.push({
@@ -158,7 +198,7 @@ async function handleRestaurantResponse(order, messageText, restaurantPhone) {
       timestamp: new Date()
     });
 
-    console.log(`[RESTAURANT] 📝 Conversa atualizada. Total de mensagens: ${conversation.length}`);
+    console.log(`[RESTAURANT] 📝 Conversa atualizada. Total: ${conversation.length} mensagens`);
 
     // 🔍 ANALISAR TIPO DE MENSAGEM DO RESTAURANTE
     const messageAnalysis = analyzeRestaurantMessage(messageText);
@@ -168,10 +208,8 @@ async function handleRestaurantResponse(order, messageText, restaurantPhone) {
     if (messageAnalysis.needsClientInput) {
       console.log(`[RESTAURANT] ❓ Pergunta que precisa do cliente real`);
       
-      // 🆕 ENVIAR PERGUNTA PARA O CLIENTE NO NÚMERO CORRETO
       await notifyClientForInput(sessionId, messageText, order.orderData);
       
-      // Marcar que estamos esperando resposta do cliente
       order.status = 'waiting_client_response';
       order.pendingQuestion = messageText;
       
@@ -185,8 +223,8 @@ async function handleRestaurantResponse(order, messageText, restaurantPhone) {
         console.log(`[RESTAURANT] 💬 Resposta gerada: ${response.substring(0, 100)}...`);
         
         // Adicionar delay para parecer natural
-        const delay = 2000 + Math.random() * 4000; // 2-6 segundos
-        console.log(`[RESTAURANT] ⏳ Aguardando ${Math.round(delay/1000)}s antes de responder`);
+        const delay = 2000 + Math.random() * 4000;
+        console.log(`[RESTAURANT] ⏳ Aguardando ${Math.round(delay/1000)}s...`);
         
         await new Promise(resolve => setTimeout(resolve, delay));
         
@@ -203,15 +241,12 @@ async function handleRestaurantResponse(order, messageText, restaurantPhone) {
             timestamp: new Date()
           });
 
-          // 🎉 VERIFICAR SE O PEDIDO FOI CONFIRMADO/STATUS MUDOU
+          // 🎉 VERIFICAR SE O PEDIDO FOI CONFIRMADO
           if (messageAnalysis.type === 'confirmed') {
             console.log(`[RESTAURANT] 🎉 PEDIDO CONFIRMADO!`);
             
             order.status = 'confirmed';
-            // 🆕 NOTIFICAR CLIENTE NO NÚMERO CORRETO
             await notifyClientOrderConfirmed(sessionId, messageText, order.orderData);
-            
-            // Enviar múltiplas mensagens sequenciais para tranquilizar o cliente
             await sendMultipleClientUpdates(sessionId, messageText, order.orderData);
             
           } else if (messageAnalysis.type === 'preparing') {
@@ -224,21 +259,18 @@ async function handleRestaurantResponse(order, messageText, restaurantPhone) {
             console.log(`[RESTAURANT] 🛵 SAIU PARA ENTREGA!`);
             
             order.status = 'out_for_delivery';
-            await notifyClientOrderStatus(sessionId, 'Seu pedido saiu para entrega! 🛵 Em breve estará aí!', order.orderData);
-            
+            await notifyClientOrderStatus(sessionId, 'Seu pedido saiu para entrega! 🛵', order.orderData);
           }
           
         } else {
           console.log(`[RESTAURANT] ❌ Erro ao enviar resposta`);
         }
-      } else {
-        console.log(`[RESTAURANT] ❌ Erro ao gerar resposta`);
       }
     }
 
     // Salvar conversa e pedido atualizados
-    restaurantConversations.set(sessionId, conversation);
-    orders.set(sessionId, order);
+    global.restaurantConversations.set(sessionId, conversation);
+    global.orders.set(sessionId, order);
 
     console.log(`[RESTAURANT] 💾 Dados salvos para sessão: ${sessionId}`);
 
@@ -251,7 +283,6 @@ async function handleRestaurantResponse(order, messageText, restaurantPhone) {
 function analyzeRestaurantMessage(message) {
   const messageLower = message.toLowerCase();
   
-  // Palavras-chave que indicam que precisa de input do cliente
   const clientInputKeywords = [
     'forma de pagamento', 'precisa de troco', 'quanto de troco', 'cartão ou dinheiro',
     'pix ou dinheiro', 'observações', 'sem cebola', 'sem tomate', 'ponto da carne',
@@ -260,19 +291,16 @@ function analyzeRestaurantMessage(message) {
     'gostaria de', 'quer adicionar', 'alguma observação', 'alguma preferência'
   ];
 
-  // Palavras-chave que indicam confirmação do pedido
   const confirmationKeywords = [
     'pedido confirmado', 'vamos preparar', 'já estamos preparando', 'tempo de entrega',
     'chega em', 'fica pronto em', 'ok, anotado', 'perfeito', 'confirmado',
     'anotei', 'valor total', 'total fica', 'vai ficar'
   ];
 
-  // Palavras-chave que indicam preparo
   const preparingKeywords = [
     'preparando', 'na cozinha', 'fazendo', 'no forno', 'assando', 'montando'
   ];
 
-  // Palavras-chave que indicam saída para entrega
   const deliveryKeywords = [
     'saiu para entrega', 'a caminho', 'entregador saiu', 'motoboy saiu', 
     'delivery a caminho', 'saindo', 'chegando'
@@ -302,6 +330,7 @@ async function generateClientResponse(conversation, orderData) {
     
     const orderContext = `
 Comida pedida: ${orderData.food || 'Pizza'}
+Nome: ${orderData.clientName || 'Cliente'}
 Endereço: ${orderData.address || 'Informado'}
 Telefone: ${orderData.phone || 'Informado'}  
 Pagamento: ${orderData.paymentMethod || 'Informado'}
@@ -311,26 +340,20 @@ ${orderData.change ? `Troco para: R$ ${orderData.change}` : ''}
     const conversationHistory = conversation.map(msg => {
       const role = msg.role === 'restaurant' ? 'Restaurante' : 'Eu';
       return `${role}: ${msg.content}`;
-    }).slice(-6).join('\n'); // Últimas 6 mensagens para contexto
+    }).slice(-6).join('\n');
 
     const prompt = CLIENT_RESPONSE_PROMPT
       .replace('{ORDER_CONTEXT}', orderContext)
       .replace('{CONVERSATION_HISTORY}', conversationHistory);
 
-    console.log(`[CLIENT_AI] 📝 Gerando com Gemini...`);
-
     const result = await model.generateContent(prompt);
     const response = result.response.text().trim();
 
-    // Limitar tamanho da resposta para parecer mais humano
-    const maxLength = 200;
     let finalResponse = response;
-    
-    if (finalResponse.length > maxLength) {
-      finalResponse = finalResponse.substring(0, maxLength).trim();
-      // Garantir que termine com palavra completa
+    if (finalResponse.length > 200) {
+      finalResponse = finalResponse.substring(0, 200).trim();
       const lastSpace = finalResponse.lastIndexOf(' ');
-      if (lastSpace > maxLength * 0.8) {
+      if (lastSpace > 160) {
         finalResponse = finalResponse.substring(0, lastSpace);
       }
     }
@@ -341,14 +364,14 @@ ${orderData.change ? `Troco para: R$ ${orderData.change}` : ''}
   } catch (error) {
     console.error('[CLIENT_AI] ❌ Erro ao gerar resposta:', error);
     
-    // Fallbacks baseados na última mensagem do restaurante
+    // Fallbacks baseados na mensagem do restaurante
     const lastMessage = conversation[conversation.length - 1]?.content || '';
     
-    if (lastMessage.toLowerCase().includes('confirmado') || lastMessage.toLowerCase().includes('anotado')) {
-      return 'Perfeito! Obrigado! Quanto tempo vai demorar mais ou menos? 😊';
-    } else if (lastMessage.toLowerCase().includes('tempo') || lastMessage.toLowerCase().includes('minutos')) {
+    if (lastMessage.toLowerCase().includes('confirmado')) {
+      return 'Perfeito! Obrigado! Quanto tempo vai demorar? 😊';
+    } else if (lastMessage.toLowerCase().includes('tempo')) {
       return 'Ok, perfeito! Obrigado! 👍';
-    } else if (lastMessage.toLowerCase().includes('valor') || lastMessage.toLowerCase().includes('total')) {
+    } else if (lastMessage.toLowerCase().includes('valor')) {
       return 'Está certo! Pode fazer. Obrigado! 🙏';
     } else {
       return 'Entendi! Obrigado pela informação. 😊';
@@ -356,11 +379,10 @@ ${orderData.change ? `Troco para: R$ ${orderData.change}` : ''}
   }
 }
 
-// 📢 NOTIFICAR CLIENTE PARA INPUT - 🆕 USANDO NÚMERO DO CLIENTE
+// 📢 NOTIFICAR CLIENTE - USANDO NÚMERO DO CLIENTE
 async function notifyClientForInput(sessionId, question, orderData) {
   console.log(`[NOTIFY] 📢 Notificar cliente ${sessionId}: ${question}`);
   
-  // 🆕 USAR O NÚMERO DO CLIENTE DOS DADOS DO PEDIDO
   if (orderData && orderData.phone) {
     console.log(`[NOTIFY] 📱 Enviando para cliente: ${orderData.phone}`);
     
@@ -373,109 +395,85 @@ Por favor, responda no chat do IA Fome: https://iafome.netlify.app
 Preciso da sua resposta para continuar o pedido! 🙏`;
     
     await sendWhatsAppMessage(orderData.phone, clientMessage);
-    console.log(`[NOTIFY] 📱 Notificação enviada para cliente via WhatsApp`);
+    console.log(`[NOTIFY] 📱 Notificação enviada para cliente`);
   } else {
-    console.log(`[NOTIFY] ⚠️ Dados do cliente não encontrados para sessão: ${sessionId}`);
+    console.log(`[NOTIFY] ⚠️ Dados do cliente não encontrados`);
   }
 }
 
-// 🎉 NOTIFICAR CLIENTE QUE PEDIDO FOI CONFIRMADO - 🆕 USANDO NÚMERO DO CLIENTE
+// 🎉 NOTIFICAR CLIENTE QUE PEDIDO FOI CONFIRMADO
 async function notifyClientOrderConfirmed(sessionId, restaurantMessage, orderData) {
   console.log(`[NOTIFY] 🎉 Pedido confirmado para cliente ${sessionId}`);
   
-  // 🆕 USAR O NÚMERO DO CLIENTE DOS DADOS DO PEDIDO
   if (orderData && orderData.phone) {
-    console.log(`[NOTIFY] 📱 Enviando confirmação para cliente: ${orderData.phone}`);
+    const clientName = orderData.clientName || 'Cliente';
     
-    const clientMessage = `🎉 IA Fome: SEU PEDIDO FOI CONFIRMADO!
+    const clientMessage = `🎉 ${clientName}! SEU PEDIDO FOI CONFIRMADO!
 
 ${restaurantMessage}
 
-Relaxa que está tudo certo! Em breve sua comida chegará! 😊
+Pode ficar tranquilo(a) que está tudo certo! Vou te avisar por WhatsApp quando houver novidades! 😊
 
-Acompanhe pelo chat: https://iafome.netlify.app`;
+Acompanhe: https://iafome.netlify.app`;
     
     await sendWhatsAppMessage(orderData.phone, clientMessage);
-    console.log(`[NOTIFY] 🎉 Confirmação enviada para cliente via WhatsApp`);
+    console.log(`[NOTIFY] 🎉 Confirmação enviada para cliente`);
   }
 }
 
-// 📱 ENVIAR MÚLTIPLAS MENSAGENS SEQUENCIAIS PARA TRANQUILIZAR - 🆕 USANDO NÚMERO DO CLIENTE
+// 📱 ENVIAR MÚLTIPLAS MENSAGENS SEQUENCIAIS
 async function sendMultipleClientUpdates(sessionId, restaurantMessage, orderData) {
-  console.log(`[NOTIFY] 📱 Enviando atualizações sequenciais para cliente ${sessionId}`);
+  console.log(`[NOTIFY] 📱 Enviando atualizações sequenciais`);
   
-  // 🆕 USAR O NÚMERO DO CLIENTE DOS DADOS DO PEDIDO
   if (orderData && orderData.phone) {
     const clientPhone = orderData.phone;
-    console.log(`[NOTIFY] 📱 Enviando múltiplas mensagens para cliente: ${clientPhone}`);
+    const clientName = orderData.clientName || 'Cliente';
     
-    // Primeira mensagem
-    await sendWhatsAppMessage(clientPhone, '🎉 Perfeito! Seu pedido foi confirmado pelo restaurante!');
-    console.log(`[NOTIFY] ✅ Mensagem 1/4 enviada`);
-    
-    // Delay entre mensagens
+    // Mensagem 1
+    await sendWhatsAppMessage(clientPhone, `🎉 Perfeito, ${clientName}! Seu pedido foi confirmado pelo restaurante!`);
     await new Promise(resolve => setTimeout(resolve, 3000));
     
-    // Segunda mensagem
+    // Mensagem 2
     await sendWhatsAppMessage(clientPhone, '👨‍🍳 Eles já começaram a preparar sua comida! Tudo certo!');
-    console.log(`[NOTIFY] ✅ Mensagem 2/4 enviada`);
-    
-    // Delay entre mensagens
     await new Promise(resolve => setTimeout(resolve, 2500));
     
-    // Terceira mensagem
+    // Mensagem 3
     await sendWhatsAppMessage(clientPhone, '📱 Pode fechar o IA Fome tranquilo! Vou te avisar aqui no WhatsApp quando sair para entrega! 😊');
-    console.log(`[NOTIFY] ✅ Mensagem 3/4 enviada`);
-    
-    // Delay entre mensagens
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // Quarta mensagem
+    // Mensagem 4
     await sendWhatsAppMessage(clientPhone, '⏰ Seu pedido deve chegar em cerca de 40-50 minutos. Relaxa que está tudo sob controle! 🍕✨');
-    console.log(`[NOTIFY] ✅ Mensagem 4/4 enviada`);
     
-    console.log(`[NOTIFY] 🎉 Todas as mensagens de tranquilização enviadas!`);
+    console.log(`[NOTIFY] 🎉 Todas as mensagens enviadas!`);
   }
 }
 
-// 📊 NOTIFICAR CLIENTE SOBRE STATUS DO PEDIDO - 🆕 USANDO NÚMERO DO CLIENTE
+// 📊 NOTIFICAR CLIENTE SOBRE STATUS
 async function notifyClientOrderStatus(sessionId, statusMessage, orderData) {
   console.log(`[NOTIFY] 📊 Status para cliente ${sessionId}: ${statusMessage}`);
   
-  // 🆕 USAR O NÚMERO DO CLIENTE DOS DADOS DO PEDIDO
   if (orderData && orderData.phone) {
-    console.log(`[NOTIFY] 📱 Enviando status para cliente: ${orderData.phone}`);
-    
     const fullMessage = `🍕 IA Fome: ${statusMessage}
 
 Qualquer novidade eu te aviso! 😊`;
     
     await sendWhatsAppMessage(orderData.phone, fullMessage);
-    console.log(`[NOTIFY] 📊 Status enviado para cliente via WhatsApp`);
+    console.log(`[NOTIFY] 📊 Status enviado para cliente`);
   }
 }
 
-// 📱 ENVIAR MENSAGEM VIA EVOLUTION API (MESMO MÉTODO DO CHAT.JS)
+// 📱 ENVIAR MENSAGEM VIA EVOLUTION API
 async function sendWhatsAppMessage(phone, message) {
   try {
     console.log(`[WHATSAPP] 📱 Enviando para: ${phone}`);
-    console.log(`[WHATSAPP] 💬 Mensagem: ${message.substring(0, 100)}...`);
     
     if (!EVOLUTION_BASE_URL || !EVOLUTION_TOKEN || !EVOLUTION_INSTANCE_ID) {
-      console.error(`[WHATSAPP] ❌ VARIÁVEIS DE AMBIENTE FALTANDO!`);
+      console.error(`[WHATSAPP] ❌ Configurações faltando!`);
       return false;
     }
 
     const cleanPhone = phone.replace(/\D/g, '');
     const url = `${EVOLUTION_BASE_URL}/message/sendText/${EVOLUTION_INSTANCE_ID}`;
-    
-    console.log(`[WHATSAPP] 🌐 URL: ${url}`);
-    console.log(`[WHATSAPP] 📞 Telefone limpo: ${cleanPhone}`);
-
-    const payload = {
-      number: cleanPhone,
-      text: message
-    };
 
     const response = await fetch(url, {
       method: 'POST',
@@ -483,18 +481,17 @@ async function sendWhatsAppMessage(phone, message) {
         'Content-Type': 'application/json',
         'apikey': EVOLUTION_TOKEN
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        number: cleanPhone,
+        text: message
+      })
     });
 
-    console.log(`[WHATSAPP] 📊 Status: ${response.status}`);
-
     if (response.ok) {
-      const result = await response.text();
-      console.log(`[WHATSAPP] ✅ SUCESSO! Resposta: ${result.substring(0, 100)}...`);
+      console.log(`[WHATSAPP] ✅ Mensagem enviada!`);
       return true;
     } else {
-      const error = await response.text();
-      console.error(`[WHATSAPP] ❌ ERRO ${response.status}: ${error}`);
+      console.error(`[WHATSAPP] ❌ Erro ${response.status}`);
       return false;
     }
     
