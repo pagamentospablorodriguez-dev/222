@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ChatInterface from './components/ChatInterface';
@@ -7,11 +6,25 @@ import ThemeToggle from './components/ThemeToggle';
 
 function App() {
   const [isInitialState, setIsInitialState] = useState(() => {
-    // Verificar se já existe uma sessão ativa
-    const sessionId = localStorage.getItem('ia-fome-session-id');
-    const hasMessages = sessionId && localStorage.getItem(`ia-fome-messages-${sessionId}`);
-    return !hasMessages;
+    // 🔄 NOVA LÓGICA: Verificar se há mensagens salvas para decidir o estado inicial
+    const savedMessages = localStorage.getItem('ia-fome-messages');
+    const savedSessionId = localStorage.getItem('ia-fome-session-id');
+    
+    // Se há mensagens salvas E uma sessão ativa, NÃO é estado inicial
+    if (savedMessages && savedSessionId) {
+      try {
+        const messages = JSON.parse(savedMessages);
+        // Se tem mensagens válidas, não é estado inicial
+        return !(messages && messages.length > 0);
+      } catch (error) {
+        console.log('Erro ao ler mensagens salvas:', error);
+        return true;
+      }
+    }
+    
+    return true; // Se não há mensagens, é estado inicial
   });
+  
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -23,6 +36,14 @@ function App() {
       setIsDark(true);
       document.documentElement.classList.add('dark');
     }
+
+    // 🔄 LISTENER para detectar quando uma nova sessão deve começar
+    const handleNewSession = () => {
+      setIsInitialState(true);
+    };
+
+    window.addEventListener('ia-fome-new-session', handleNewSession);
+    return () => window.removeEventListener('ia-fome-new-session', handleNewSession);
   }, []);
 
   const toggleTheme = () => {
