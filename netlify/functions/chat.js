@@ -535,25 +535,9 @@ async function makeOrderImmediately(extractedData, restaurant) {
     }
 
     // Criar mensagem realista
-    const orderMessage = `Olá! 😊
+    const orderMessage = `Oi, tudo bem? Gostaria de fazer um pedido para entrega: ${extractedData.food}, endereço: ${cleanAddress}, forma de pagamento: ${extractedData.paymentMethod}${extractedData.change ? ` (Troco para R$ ${extractedData.change})` : ''}
 
-Gostaria de fazer um pedido para entrega:
-
-🍕 PEDIDO:
-${extractedData.food}
-
-📍 ENDEREÇO DE ENTREGA:
-${cleanAddress}
-
-📱 CONTATO:
-${extractedData.phone}
-
-💰 FORMA DE PAGAMENTO:
-${extractedData.paymentMethod}${extractedData.change ? ` (Troco para R$ ${extractedData.change})` : ''}
-
-Podem me confirmar o valor total e o tempo de entrega?
-
-Obrigado! 🙏`;
+Poderiam me confirmar o valor total e o tempo de entrega por favor? Obrigado! 🙏`;
 
     console.log(`[PEDIDO] 📝 MENSAGEM PREPARADA`);
 
