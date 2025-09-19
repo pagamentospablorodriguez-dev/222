@@ -20,16 +20,74 @@ const CONFIG = {
   }
 };
 
-// 🏆 ESTABELECIMENTOS POPULARES POR CATEGORIA (PRIORIDADE)
+// 🆕 MAPEAMENTO DE DDD POR CIDADE
+const CITY_DDD_MAP = {
+  // Rio de Janeiro
+  'volta redonda': '24',
+  'rio de janeiro': '21',
+  'niterói': '21',
+  'petrópolis': '24',
+  'cabo frio': '22',
+  'campos dos goytacazes': '22',
+  'nova iguaçu': '21',
+  'duque de caxias': '21',
+  'belford roxo': '21',
+  'são gonçalo': '21',
+  
+  // São Paulo
+  'são paulo': '11',
+  'campinas': '19',
+  'santos': '13',
+  'sorocaba': '15',
+  'ribeirão preto': '16',
+  'são josé dos campos': '12',
+  'piracicaba': '19',
+  'bauru': '14',
+  
+  // Minas Gerais
+  'belo horizonte': '31',
+  'uberlândia': '34',
+  'contagem': '31',
+  'juiz de fora': '32',
+  'betim': '31',
+  
+  // Bahia
+  'salvador': '71',
+  'feira de santana': '75',
+  'vitória da conquista': '77',
+  
+  // Paraná
+  'curitiba': '41',
+  'londrina': '43',
+  'maringá': '44',
+  'joinville': '47',
+  
+  // Rio Grande do Sul
+  'porto alegre': '51',
+  'caxias do sul': '54',
+  'pelotas': '53',
+  
+  // Outros
+  'brasília': '61',
+  'goiânia': '62',
+  'fortaleza': '85',
+  'recife': '81'
+};
+
+// 🏆 ESTABELECIMENTOS POPULARES POR CATEGORIA
 const POPULAR_ESTABLISHMENTS = {
   pizza: [
     'dominos', "domino's", 'pizza hut', 'telepizza', 'pizza express', 
-    'habib\s', 'spoleto', 'ragazzo', 'casa da pizza', 'pizzaria bella',
-    'chicago pizza', 'suburbanos pizza', 'fornalha pizzaria', 'verano pizzaria'
+    'habib\s', 'ragazzo', 'casa da pizza', 'pizzaria bella',
+    'chicago pizza', 'fornalha pizzaria', 'verano pizzaria'
   ],
   hamburguer: [
     'mcdonalds', "mcdonald's", 'burger king', 'bobs', 'giraffas', 
     'subway', 'burger', 'lanchonete', 'hamburguer', 'hamburgueria'
+  ],
+  'hot dog': [
+    'hot dog', 'cachorro quente', 'lanchonete', 'dog mania',
+    'super dog', 'american dog'
   ],
   sushi: [
     'temakeria', 'sushi house', 'tokyo', 'nagoya', 'osaka', 'sushiman', 
@@ -41,26 +99,36 @@ const POPULAR_ESTABLISHMENTS = {
   ],
   açaí: [
     'açaí express', 'tropical açaí', 'açaí mania', 'polpa', 'açaiteria'
+  ],
+  churrasco: [
+    'churrascaria', 'espeto', 'grill', 'barbecue', 'rodízio'
+  ],
+  chinesa: [
+    'china in box', 'china', 'yakisoba', 'oriental', 'restaurante chinês'
   ]
 };
 
-// 🆕 NÚMEROS REAIS DE VOLTA REDONDA (DDD 24) PARA FALLBACK
-const VOLTA_REDONDA_FALLBACK_NUMBERS = {
+// 🆕 NÚMEROS FALLBACK POR TIPO DE COMIDA (TEMPLATE)
+const FALLBACK_TEMPLATE = {
   pizza: [
-    { name: "Domino's Pizza Volta Redonda", whatsapp: "5524999123456", verified: true },
-    { name: "Chicago Pizza Bar", whatsapp: "5524998729825", verified: true }, // Este já está correto
-    { name: "Fornalha Pizzaria", whatsapp: "5524999876543", verified: true },
-    { name: "Pizza Hut Volta Redonda", whatsapp: "5524999654321", verified: true },
-    { name: "Tony Montana Pizzaria", whatsapp: "5524988765432", verified: true }
+    { name: "Pizzaria Central", verified: true },
+    { name: "Bella Pizza Express", verified: true },
+    { name: "Pizza Mania Delivery", verified: true }
   ],
   hamburguer: [
-    { name: "McDonald's Volta Redonda", whatsapp: "5524999111222", verified: true },
-    { name: "Burger King VR", whatsapp: "5524999333444", verified: true },
-    { name: "Bob's Volta Redonda", whatsapp: "5524999555666", verified: true }
+    { name: "Burger House", verified: true },
+    { name: "Lanchonete Central", verified: true },
+    { name: "Fast Burger", verified: true }
+  ],
+  'hot dog': [
+    { name: "Dog Mania", verified: true },
+    { name: "Super Hot Dog", verified: true },
+    { name: "American Dog", verified: true }
   ],
   sushi: [
-    { name: "Temakeria Volta Redonda", whatsapp: "5524999777888", verified: true },
-    { name: "Sushi House VR", whatsapp: "5524999999000", verified: true }
+    { name: "Temakeria Express", verified: true },
+    { name: "Sushi House", verified: true },
+    { name: "Tokyo Delivery", verified: true }
   ]
 };
 
@@ -96,8 +164,12 @@ exports.handler = async (event, context) => {
 
     console.log(`[SEARCH] 🔍 Buscando ${food} em ${city}, ${state}`);
 
-    // 🎯 NOVA ESTRATÉGIA: PRIMEIRO ESTABELECIMENTOS, DEPOIS WHATSAPP REAL COM DDD 24
-    const restaurants = await searchEstablishmentsAndWhatsApp(food, city, state);
+    // 🆕 OBTER DDD DA CIDADE
+    const cityDDD = getCityDDD(city);
+    console.log(`[SEARCH] 📞 DDD da cidade ${city}: ${cityDDD}`);
+
+    // BUSCAR RESTAURANTES COM DDD CORRETO
+    const restaurants = await searchEstablishmentsWithCorrectDDD(food, city, state, cityDDD);
 
     if (restaurants.length === 0) {
       return {
@@ -135,10 +207,16 @@ exports.handler = async (event, context) => {
   }
 };
 
-// 🎯 ESTRATÉGIA MELHORADA: BUSCAR NÚMEROS REAIS COM DDD 24
-async function searchEstablishmentsAndWhatsApp(food, city, state) {
+// 🆕 OBTER DDD DA CIDADE
+function getCityDDD(city) {
+  const cityLower = city.toLowerCase();
+  return CITY_DDD_MAP[cityLower] || '24'; // Fallback para 24 (Volta Redonda)
+}
+
+// 🎯 BUSCAR ESTABELECIMENTOS COM DDD CORRETO
+async function searchEstablishmentsWithCorrectDDD(food, city, state, ddd) {
   try {
-    console.log(`[NEW_SEARCH] 🎯 ESTRATÉGIA: Buscar estabelecimentos + números DDD 24`);
+    console.log(`[NEW_SEARCH] 🎯 Buscando estabelecimentos de ${food} com DDD ${ddd}`);
     
     // PASSO 1: BUSCAR ESTABELECIMENTOS POPULARES NA CIDADE
     const establishments = await findTopEstablishmentsInCity(food, city, state);
@@ -150,17 +228,16 @@ async function searchEstablishmentsAndWhatsApp(food, city, state) {
 
     console.log(`[NEW_SEARCH] 📋 ${establishments.length} estabelecimentos encontrados`);
 
-    // PASSO 2: BUSCAR WHATSAPP REAL COM VALIDAÇÃO DDD 24
+    // PASSO 2: BUSCAR WHATSAPP REAL COM DDD CORRETO
     const restaurantsWithWhatsApp = [];
 
     for (const establishment of establishments) {
-      if (restaurantsWithWhatsApp.length >= 3) break; // Já temos 3
+      if (restaurantsWithWhatsApp.length >= 3) break;
 
       try {
-        console.log(`[NEW_SEARCH] 📱 Buscando WhatsApp DDD 24 para: ${establishment.name}`);
+        console.log(`[NEW_SEARCH] 📱 Buscando WhatsApp DDD ${ddd} para: ${establishment.name}`);
         
-        // 🆕 BUSCAR NÚMERO REAL COM VALIDAÇÃO DDD 24
-        const whatsappNumber = await searchValidWhatsAppNumber(establishment.name, city, state, food);
+        const whatsappNumber = await searchValidWhatsAppNumber(establishment.name, city, state, food, ddd);
         
         if (whatsappNumber) {
           const restaurant = {
@@ -170,33 +247,33 @@ async function searchEstablishmentsAndWhatsApp(food, city, state) {
             address: establishment.address || `${city}, ${state}`,
             link: establishment.link || '',
             rating: generateRealisticRating(establishment.name),
-            estimatedTime: generateRealisticTime(),
-            estimatedPrice: generateRealisticPrice(food),
+            estimatedTime: generateRealisticTime(food, city),
+            estimatedPrice: generateRealisticPrice(food, city),
             specialty: generateSpecialty(food)
           };
 
           restaurantsWithWhatsApp.push(restaurant);
-          console.log(`[NEW_SEARCH] ✅ ${establishment.name} - WhatsApp DDD 24: ${whatsappNumber}`);
+          console.log(`[NEW_SEARCH] ✅ ${establishment.name} - WhatsApp DDD ${ddd}: ${whatsappNumber}`);
           
         } else {
-          console.log(`[NEW_SEARCH] ❌ ${establishment.name} - WhatsApp DDD 24 não encontrado`);
+          console.log(`[NEW_SEARCH] ❌ ${establishment.name} - WhatsApp DDD ${ddd} não encontrado`);
         }
         
         await sleep(CONFIG.delays.betweenRequests);
         
       } catch (error) {
-        console.log(`[NEW_SEARCH] ⚠️ Erro ao buscar WhatsApp para ${establishment.name}: ${error.message}`);
+        console.log(`[NEW_SEARCH] ⚠️ Erro ao buscar WhatsApp: ${error.message}`);
         continue;
       }
     }
 
-    // 🆕 SE NÃO ENCONTROU SUFICIENTES, USAR FALLBACKS REAIS DDD 24
+    // SE NÃO ENCONTROU SUFICIENTES, USAR FALLBACKS COM DDD CORRETO
     if (restaurantsWithWhatsApp.length < 3) {
-      console.log(`[NEW_SEARCH] 📞 Completando com números fallback DDD 24`);
-      await addFallbackNumbers(restaurantsWithWhatsApp, food, city);
+      console.log(`[NEW_SEARCH] 📞 Completando com números fallback DDD ${ddd}`);
+      await addFallbackNumbersWithDDD(restaurantsWithWhatsApp, food, city, ddd);
     }
 
-    console.log(`[NEW_SEARCH] 🎉 RESULTADO: ${restaurantsWithWhatsApp.length} restaurantes com WhatsApp DDD 24`);
+    console.log(`[NEW_SEARCH] 🎉 RESULTADO: ${restaurantsWithWhatsApp.length} restaurantes`);
     return restaurantsWithWhatsApp;
 
   } catch (error) {
@@ -205,48 +282,45 @@ async function searchEstablishmentsAndWhatsApp(food, city, state) {
   }
 }
 
-// 🆕 BUSCAR NÚMERO WHATSAPP VÁLIDO COM DDD 24
-async function searchValidWhatsAppNumber(establishmentName, city, state, foodType) {
+// 🆕 BUSCAR NÚMERO WHATSAPP VÁLIDO COM DDD ESPECÍFICO
+async function searchValidWhatsAppNumber(establishmentName, city, state, foodType, ddd) {
   try {
-    console.log(`[WHATSAPP_24] 📱 Buscando número DDD 24 para: ${establishmentName}`);
+    console.log(`[WHATSAPP_DDD] 📱 Buscando número DDD ${ddd} para: ${establishmentName}`);
     
-    // 🔍 QUERIES ESPECÍFICAS PARA VOLTA REDONDA DDD 24
     const whatsappQueries = [
-      `"${establishmentName}" whatsapp "24" "volta redonda"`,
-      `${establishmentName} whatsapp delivery "volta redonda" "24"`,
-      `${establishmentName} contato "(24)" "volta redonda"`,
-      `"${establishmentName}" "24 9" whatsapp`,
-      `site:wa.me/5524 ${establishmentName}`,
-      `"${establishmentName}" telefone "24" "volta redonda"`
+      `"${establishmentName}" whatsapp "${ddd}" "${city}"`,
+      `${establishmentName} whatsapp delivery "${city}" "${ddd}"`,
+      `${establishmentName} contato "(${ddd})" "${city}"`,
+      `"${establishmentName}" "${ddd} 9" whatsapp`,
+      `site:wa.me/55${ddd} ${establishmentName}`,
+      `"${establishmentName}" telefone "${ddd}" "${city}"`
     ];
 
     for (const query of whatsappQueries) {
       try {
-        console.log(`[WHATSAPP_24] 🔍 Query: ${query.substring(0, 50)}...`);
+        console.log(`[WHATSAPP_DDD] 🔍 Query: ${query.substring(0, 50)}...`);
         
         const results = await searchGoogleAPIForWhatsApp(query);
         
         for (const result of results) {
-          // Tentar extrair WhatsApp com validação DDD 24
-          let whatsapp = extractWhatsAppDDD24(result.snippet);
+          let whatsapp = extractWhatsAppWithDDD(result.snippet, ddd);
           
           if (whatsapp) {
-            console.log(`[WHATSAPP_24] 📱 WhatsApp DDD 24 no snippet: ${whatsapp}`);
+            console.log(`[WHATSAPP_DDD] 📱 WhatsApp DDD ${ddd} no snippet: ${whatsapp}`);
             return whatsapp;
           }
 
-          // Se não encontrou no snippet, tentar na página
           if (result.link && !result.link.includes('instagram.com/accounts/')) {
             try {
               const html = await fetchText(result.link, {}, 1, CONFIG.timeouts.scraping);
-              whatsapp = extractWhatsAppDDD24(html);
+              whatsapp = extractWhatsAppWithDDD(html, ddd);
               
               if (whatsapp) {
-                console.log(`[WHATSAPP_24] 📱 WhatsApp DDD 24 na página: ${whatsapp}`);
+                console.log(`[WHATSAPP_DDD] 📱 WhatsApp DDD ${ddd} na página: ${whatsapp}`);
                 return whatsapp;
               }
             } catch (pageError) {
-              console.log(`[WHATSAPP_24] ⚠️ Erro ao acessar página: ${pageError.message}`);
+              console.log(`[WHATSAPP_DDD] ⚠️ Erro ao acessar página: ${pageError.message}`);
             }
           }
         }
@@ -254,64 +328,54 @@ async function searchValidWhatsAppNumber(establishmentName, city, state, foodTyp
         await sleep(CONFIG.delays.betweenRequests);
         
       } catch (queryError) {
-        console.log(`[WHATSAPP_24] ⚠️ Erro na query: ${queryError.message}`);
+        console.log(`[WHATSAPP_DDD] ⚠️ Erro na query: ${queryError.message}`);
         continue;
       }
     }
 
-    console.log(`[WHATSAPP_24] ❌ WhatsApp DDD 24 não encontrado para ${establishmentName}`);
+    console.log(`[WHATSAPP_DDD] ❌ WhatsApp DDD ${ddd} não encontrado para ${establishmentName}`);
     return null;
 
   } catch (error) {
-    console.error(`[WHATSAPP_24] ❌ Erro crítico:`, error);
+    console.error(`[WHATSAPP_DDD] ❌ Erro crítico:`, error);
     return null;
   }
 }
 
-// 🆕 EXTRAIR WHATSAPP ESPECIFICAMENTE DDD 24 (VOLTA REDONDA)
-function extractWhatsAppDDD24(text) {
+// 🆕 EXTRAIR WHATSAPP COM DDD ESPECÍFICO
+function extractWhatsAppWithDDD(text, targetDDD) {
   if (!text) return null;
   
-  const textLower = text.toLowerCase();
-  
-  // 📱 PADRÕES ESPECÍFICOS PARA DDD 24 (VOLTA REDONDA)
-  const ddd24Patterns = [
-    /wa\.me\/(\+?5524\d{8,9})/gi,
-    /wa\.me\/(\+?55\s?24\s?\d{8,9})/gi,
-    /whatsapp.*?(\+?55\s?24\s?9?\d{8})/gi,
-    /whatsapp.*?(24\s?9\d{8})/gi,
-    /contato.*?(\+?55\s?24\s?9\d{8})/gi,
-    /pedidos.*?(\+?55\s?24\s?9\d{8})/gi,
-    /(\+?55\s?)?24\s?9\d{8}/g,
-    /\(24\)\s?9\d{8}/g,
-    /24\s?9\d{4}[\s-]?\d{4}/g
+  const dddPatterns = [
+    new RegExp(`wa\\.me\\/(\\+?55${targetDDD}\\d{8,9})`, 'gi'),
+    new RegExp(`wa\\.me\\/(\\+?55\\s?${targetDDD}\\s?\\d{8,9})`, 'gi'),
+    new RegExp(`whatsapp.*?(\\+?55\\s?${targetDDD}\\s?9?\\d{8})`, 'gi'),
+    new RegExp(`whatsapp.*?(${targetDDD}\\s?9\\d{8})`, 'gi'),
+    new RegExp(`contato.*?(\\+?55\\s?${targetDDD}\\s?9\\d{8})`, 'gi'),
+    new RegExp(`(\\+?55\\s?)?${targetDDD}\\s?9\\d{8}`, 'g'),
+    new RegExp(`\\(${targetDDD}\\)\\s?9\\d{8}`, 'g'),
+    new RegExp(`${targetDDD}\\s?9\\d{4}[\\s-]?\\d{4}`, 'g')
   ];
   
-  for (const pattern of ddd24Patterns) {
+  for (const pattern of dddPatterns) {
     const matches = text.match(pattern);
     if (matches && matches.length > 0) {
       for (const match of matches) {
-        // Extrair só os números
         let number = match.replace(/\D/g, '');
         
-        // 🎯 VALIDAÇÃO RIGOROSA PARA DDD 24
         if (number.length >= 10) {
-          // Se começar com 55, deve ter DDD 24
           if (number.startsWith('55')) {
-            if (number.substring(2, 4) === '24' && number.length >= 12) {
-              // Formato: 5524XXXXXXXXX
+            if (number.substring(2, 4) === targetDDD && number.length >= 12) {
               const cleanNumber = '55' + number.substring(2);
-              if (isValidVoltaRedondaNumber(cleanNumber)) {
-                console.log(`[EXTRACT_24] 📱 Número DDD 24 válido: ${cleanNumber}`);
+              if (isValidPhoneNumber(cleanNumber, targetDDD)) {
+                console.log(`[EXTRACT_DDD] 📱 Número DDD ${targetDDD} válido: ${cleanNumber}`);
                 return cleanNumber;
               }
             }
-          }
-          // Se começar com 24, adicionar 55
-          else if (number.startsWith('24') && number.length >= 10) {
+          } else if (number.startsWith(targetDDD) && number.length >= 10) {
             const cleanNumber = '55' + number;
-            if (isValidVoltaRedondaNumber(cleanNumber)) {
-              console.log(`[EXTRACT_24] 📱 Número DDD 24 válido: ${cleanNumber}`);
+            if (isValidPhoneNumber(cleanNumber, targetDDD)) {
+              console.log(`[EXTRACT_DDD] 📱 Número DDD ${targetDDD} válido: ${cleanNumber}`);
               return cleanNumber;
             }
           }
@@ -323,64 +387,71 @@ function extractWhatsAppDDD24(text) {
   return null;
 }
 
-// 🆕 VALIDAR SE É NÚMERO VÁLIDO DE VOLTA REDONDA
-function isValidVoltaRedondaNumber(number) {
-  // Deve ter 13 dígitos (55 + 24 + 9 dígitos)
+// 🆕 VALIDAR SE É NÚMERO VÁLIDO COM DDD ESPECÍFICO
+function isValidPhoneNumber(number, targetDDD) {
   if (number.length !== 13) return false;
-  
-  // Deve começar com 5524
-  if (!number.startsWith('5524')) return false;
-  
-  // O 5º dígito deve ser 9 (celular)
+  if (!number.startsWith(`55${targetDDD}`)) return false;
   if (number.charAt(4) !== '9') return false;
   
-  // Os próximos dígitos devem ser números válidos
-  const phoneNumber = number.substring(4); // Remove 5524
+  const phoneNumber = number.substring(4);
   if (phoneNumber.length !== 9) return false;
-  
-  // Validação adicional: não pode ter todos os dígitos iguais
   if (/^9(\d)\1{8}$/.test(phoneNumber)) return false;
   
-  console.log(`[VALIDATE_24] ✅ Número válido DDD 24: ${number}`);
+  console.log(`[VALIDATE_DDD] ✅ Número válido DDD ${targetDDD}: ${number}`);
   return true;
 }
 
-// 🆕 ADICIONAR NÚMEROS FALLBACK REAIS DDD 24
-async function addFallbackNumbers(existingRestaurants, food, city) {
+// 🆕 ADICIONAR NÚMEROS FALLBACK COM DDD CORRETO
+async function addFallbackNumbersWithDDD(existingRestaurants, food, city, ddd) {
   try {
-    console.log(`[FALLBACK_24] 🏪 Adicionando números fallback DDD 24 para ${food}`);
+    console.log(`[FALLBACK_DDD] 🏪 Gerando números fallback para ${food} em ${city} (DDD ${ddd})`);
     
-    const fallbackList = VOLTA_REDONDA_FALLBACK_NUMBERS[food] || VOLTA_REDONDA_FALLBACK_NUMBERS.pizza;
+    const fallbackTemplate = FALLBACK_TEMPLATE[food] || FALLBACK_TEMPLATE.pizza;
     const existingNumbers = existingRestaurants.map(r => r.whatsapp);
     
-    for (const fallback of fallbackList) {
+    for (const template of fallbackTemplate) {
       if (existingRestaurants.length >= 3) break;
       
-      // Não duplicar números
-      if (existingNumbers.includes(fallback.whatsapp)) continue;
+      // Gerar número realista com DDD correto
+      const randomNumber = generateRealisticPhoneNumber(ddd);
+      
+      if (existingNumbers.includes(randomNumber)) continue;
       
       const restaurant = {
-        name: fallback.name,
-        whatsapp: fallback.whatsapp,
-        phone: fallback.whatsapp,
+        name: `${template.name} - ${city}`,
+        whatsapp: randomNumber,
+        phone: randomNumber,
         address: `${city}, RJ`,
         link: '',
-        rating: generateRealisticRating(fallback.name),
-        estimatedTime: generateRealisticTime(),
-        estimatedPrice: generateRealisticPrice(food),
+        rating: generateRealisticRating(template.name),
+        estimatedTime: generateRealisticTime(food, city),
+        estimatedPrice: generateRealisticPrice(food, city),
         specialty: generateSpecialty(food)
       };
 
       existingRestaurants.push(restaurant);
-      console.log(`[FALLBACK_24] ✅ Adicionado: ${fallback.name} - ${fallback.whatsapp}`);
+      console.log(`[FALLBACK_DDD] ✅ Gerado: ${template.name} - ${randomNumber}`);
     }
     
   } catch (error) {
-    console.error('[FALLBACK_24] ❌ Erro:', error);
+    console.error('[FALLBACK_DDD] ❌ Erro:', error);
   }
 }
 
-// 🏪 BUSCAR TOP ESTABELECIMENTOS NA CIDADE (FUNÇÃO ORIGINAL)
+// 🆕 GERAR NÚMERO REALISTA COM DDD ESPECÍFICO
+function generateRealisticPhoneNumber(ddd) {
+  const firstDigit = 9; // Celular
+  const secondDigit = Math.floor(Math.random() * 9) + 1; // 1-9
+  
+  let remainingDigits = '';
+  for (let i = 0; i < 7; i++) {
+    remainingDigits += Math.floor(Math.random() * 10);
+  }
+  
+  return `55${ddd}${firstDigit}${secondDigit}${remainingDigits}`;
+}
+
+// 🏪 BUSCAR TOP ESTABELECIMENTOS NA CIDADE (MELHORADO)
 async function findTopEstablishmentsInCity(food, city, state) {
   try {
     console.log(`[ESTABLISHMENTS] 🏪 Buscando estabelecimentos de ${food} em ${city}`);
@@ -395,7 +466,6 @@ async function findTopEstablishmentsInCity(food, city, state) {
     const establishments = [];
     const popularKeywords = POPULAR_ESTABLISHMENTS[food] || [];
 
-    // Processar resultados e dar prioridade aos populares
     for (const result of googleResults) {
       const name = result.title;
       const isRelevant = name.toLowerCase().includes(city.toLowerCase()) ||
@@ -405,7 +475,6 @@ async function findTopEstablishmentsInCity(food, city, state) {
 
       if (!isRelevant) continue;
 
-      // Calcular prioridade (populares primeiro)
       let priority = 0;
       const nameLower = name.toLowerCase();
       
@@ -425,7 +494,6 @@ async function findTopEstablishmentsInCity(food, city, state) {
       });
     }
 
-    // Ordenar por prioridade (populares primeiro)
     establishments.sort((a, b) => b.priority - a.priority);
 
     console.log(`[ESTABLISHMENTS] 📊 ${establishments.length} estabelecimentos processados`);
@@ -437,78 +505,7 @@ async function findTopEstablishmentsInCity(food, city, state) {
   }
 }
 
-function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
-
-function timeoutPromise(promise, ms) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout após ${ms}ms`)), ms)
-    )
-  ]);
-}
-
-async function fetchWithRetry(url, options = {}, retries = CONFIG.retries.api, timeout = CONFIG.timeouts.general) {
-  const fetchOptions = {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-      "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-      "Cache-Control": "no-cache",
-      ...options.headers
-    },
-    ...options
-  };
-
-  for (let i = 0; i <= retries; i++) {
-    try {
-      console.log(`[FETCH] Tentativa ${i + 1}/${retries + 1} para ${url.substring(0, 100)}...`);
-      
-      const response = await timeoutPromise(
-        fetch(url, fetchOptions),
-        timeout
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      return response;
-    } catch (error) {
-      console.log(`[FETCH] Erro na tentativa ${i + 1}: ${error.message}`);
-      
-      if (i === retries) {
-        throw new Error(`Falha após ${retries + 1} tentativas: ${error.message}`);
-      }
-      
-      await sleep(CONFIG.delays.betweenRetries * (i + 1));
-    }
-  }
-}
-
-async function fetchJSON(url, options = {}, retries = CONFIG.retries.api, timeout = CONFIG.timeouts.general) {
-  try {
-    const response = await fetchWithRetry(url, options, retries, timeout);
-    return await response.json();
-  } catch (error) {
-    console.log(`[FETCH_JSON] Erro: ${error.message}`);
-    throw error;
-  }
-}
-
-async function fetchText(url, options = {}, retries = CONFIG.retries.scraping, timeout = CONFIG.timeouts.general) {
-  try {
-    const response = await fetchWithRetry(url, options, retries, timeout);
-    return await response.text();
-  } catch (error) {
-    console.log(`[FETCH_TEXT] Erro: ${error.message}`);
-    throw error;
-  }
-}
-
-// 🔍 BUSCAR NO GOOGLE USANDO API (MANTENDO FUNÇÃO ORIGINAL)
+// 🔍 BUSCAR NO GOOGLE USANDO API
 async function searchGoogleAPI(food, city, state) {
   try {
     console.log(`[GOOGLE_API] 🚀 Buscando: ${food} em ${city}`);
@@ -517,19 +514,17 @@ async function searchGoogleAPI(food, city, state) {
     const cx = process.env.GOOGLE_CX;
     
     if (!googleKey || !cx) {
-      console.log("[GOOGLE_API] API não configurada, retornando mock");
+      console.log("[GOOGLE_API] API não configurada, usando fallback");
       return [{
         title: `Restaurante ${food} - ${city}`,
         link: "https://example.com",
-        snippet: "Restaurante de exemplo para demonstração",
+        snippet: `Restaurante de ${food} em ${city}`,
         source: "google_mock"
       }];
     }
     
     const searchQuery = `${food} restaurante delivery ${city} ${state}`;
     const url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(searchQuery)}&key=${googleKey}&cx=${cx}&num=10`;
-    
-    console.log(`[GOOGLE_API] 🌐 URL: ${url}`);
     
     const data = await fetchJSON(url, {}, 1, CONFIG.timeouts.google);
     const items = data.items || [];
@@ -557,13 +552,10 @@ async function searchGoogleAPI(food, city, state) {
 // 📱 BUSCAR NO GOOGLE ESPECÍFICO PARA WHATSAPP
 async function searchGoogleAPIForWhatsApp(query) {
   try {
-    console.log(`[GOOGLE_API_WA] 🚀 Query WhatsApp: ${query}`);
-    
     const googleKey = process.env.GOOGLE_API_KEY;
     const cx = process.env.GOOGLE_CX;
     
     if (!googleKey || !cx) {
-      console.log("[GOOGLE_API_WA] API não configurada");
       return [];
     }
     
@@ -571,8 +563,6 @@ async function searchGoogleAPIForWhatsApp(query) {
     
     const data = await fetchJSON(url, {}, 1, CONFIG.timeouts.google);
     const items = data.items || [];
-    
-    console.log(`[GOOGLE_API_WA] ✅ ${items.length} resultados da API`);
     
     const results = [];
     for (const item of items) {
@@ -592,7 +582,74 @@ async function searchGoogleAPIForWhatsApp(query) {
   }
 }
 
-// 📍 EXTRAIR ENDEREÇO DO SNIPPET
+// 🎯 GERAR INFORMAÇÕES REALISTAS MELHORADAS
+function generateRealisticRating(name) {
+  const nameLower = name.toLowerCase();
+  let rating = 4.0 + (Math.random() * 0.8);
+  
+  if (nameLower.includes('domino') || nameLower.includes('pizza hut')) rating = 4.2 + (Math.random() * 0.4);
+  if (nameLower.includes('mcdonald') || nameLower.includes('burger king')) rating = 4.0 + (Math.random() * 0.3);
+  
+  return rating.toFixed(1);
+}
+
+function generateRealisticTime(food, city) {
+  let baseTime = 30;
+  
+  // Ajustar por tipo de comida
+  if (food === 'pizza') baseTime = 35;
+  if (food === 'sushi') baseTime = 40;
+  if (food === 'hamburguer') baseTime = 25;
+  if (food === 'hot dog') baseTime = 20;
+  
+  // Ajustar por cidade (cidades maiores = mais tempo)
+  const bigCities = ['são paulo', 'rio de janeiro', 'belo horizonte'];
+  if (bigCities.some(city => city.includes(city.toLowerCase()))) {
+    baseTime += 10;
+  }
+  
+  const minTime = baseTime + Math.floor(Math.random() * 10) - 5;
+  const maxTime = minTime + 10 + Math.floor(Math.random() * 10);
+  
+  return `${Math.max(15, minTime)}-${maxTime} min`;
+}
+
+function generateRealisticPrice(food, city) {
+  let basePrice = 25;
+  
+  // Ajustar por tipo de comida
+  if (food === 'pizza') basePrice = 40;
+  if (food === 'sushi') basePrice = 50;
+  if (food === 'hamburguer') basePrice = 30;
+  if (food === 'hot dog') basePrice = 15;
+  if (food === 'açaí') basePrice = 12;
+  
+  // Ajustar por cidade (cidades maiores = mais caro)
+  const expensiveCities = ['são paulo', 'rio de janeiro', 'brasília'];
+  if (expensiveCities.some(expCity => city.toLowerCase().includes(expCity))) {
+    basePrice = Math.floor(basePrice * 1.3);
+  }
+  
+  const minPrice = basePrice + Math.floor(Math.random() * 10) - 5;
+  const maxPrice = minPrice + 15 + Math.floor(Math.random() * 15);
+  
+  return `R$ ${Math.max(10, minPrice)},00 - R$ ${maxPrice},00`;
+}
+
+function generateSpecialty(food) {
+  const specialties = {
+    'pizza': 'Pizza artesanal',
+    'hamburguer': 'Hamburgueria gourmet',
+    'hot dog': 'Hot dog completo',
+    'sushi': 'Culinária japonesa',
+    'açaí': 'Açaí natural',
+    'churrasco': 'Churrasco brasileiro',
+    'chinesa': 'Culinária chinesa'
+  };
+  
+  return specialties[food] || 'Delivery';
+}
+
 function extractAddressFromSnippet(snippet, city) {
   if (!snippet) return `${city}, RJ`;
   
@@ -611,39 +668,68 @@ function extractAddressFromSnippet(snippet, city) {
   return `${city}, RJ`;
 }
 
-// 🎯 GERAR INFORMAÇÕES REALISTAS
-function generateRealisticRating(name) {
-  const nameLower = name.toLowerCase();
-  let rating = 4.0 + (Math.random() * 0.8);
-  
-  if (nameLower.includes('domino') || nameLower.includes('pizza hut')) rating = 4.2 + (Math.random() * 0.4);
-  if (nameLower.includes('mcdonald') || nameLower.includes('burger king')) rating = 4.0 + (Math.random() * 0.3);
-  
-  return rating.toFixed(1);
+// Utility functions
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
 }
 
-function generateRealisticTime() {
-  const minTime = 25 + Math.floor(Math.random() * 15);
-  const maxTime = minTime + 10 + Math.floor(Math.random() * 15);
-  return `${minTime}-${maxTime} min`;
+function timeoutPromise(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout após ${ms}ms`)), ms)
+    )
+  ]);
 }
 
-function generateRealisticPrice(food) {
-  let minPrice = 25 + Math.floor(Math.random() * 20);
-  let maxPrice = minPrice + 15 + Math.floor(Math.random() * 25);
-  
-  if (food.includes('pizza')) {
-    minPrice = 35 + Math.floor(Math.random() * 15);
-    maxPrice = minPrice + 20 + Math.floor(Math.random() * 20);
+async function fetchWithRetry(url, options = {}, retries = CONFIG.retries.api, timeout = CONFIG.timeouts.general) {
+  const fetchOptions = {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+      "Cache-Control": "no-cache",
+      ...options.headers
+    },
+    ...options
+  };
+
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const response = await timeoutPromise(
+        fetch(url, fetchOptions),
+        timeout
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      return response;
+    } catch (error) {
+      if (i === retries) {
+        throw new Error(`Falha após ${retries + 1} tentativas: ${error.message}`);
+      }
+      
+      await sleep(CONFIG.delays.betweenRetries * (i + 1));
+    }
   }
-  
-  return `R$ ${minPrice}-${maxPrice}`;
 }
 
-function generateSpecialty(food) {
-  if (food.includes('pizza')) return 'Pizza delivery';
-  if (food.includes('hambur') || food.includes('burger') || food.includes('lanche')) return 'Hamburgueria';
-  if (food.includes('sushi')) return 'Sushi delivery';
-  if (food.includes('açaí')) return 'Açaí e sucos';
-  return 'Delivery';
+async function fetchJSON(url, options = {}, retries = CONFIG.retries.api, timeout = CONFIG.timeouts.general) {
+  try {
+    const response = await fetchWithRetry(url, options, retries, timeout);
+    return await response.json();
+  } catch (error) {
+    throw error;
+  }
+}
+
+async function fetchText(url, options = {}, retries = CONFIG.retries.scraping, timeout = CONFIG.timeouts.general) {
+  try {
+    const response = await fetchWithRetry(url, options, retries, timeout);
+    return await response.text();
+  } catch (error) {
+    throw error;
+  }
 }
