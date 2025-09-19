@@ -297,7 +297,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyPress}
-              placeholder="Ex: Quero uma pizza grande de calabresa e uma coca-cola 2L para a Rua das Flores, 123, Centro, São Paulo..."
+              placeholder="Ex: Quero uma pizza grande de calabresa e uma coca-cola 2L"
               className="w-full px-4 sm:px-6 py-4 sm:py-6 text-base sm:text-lg placeholder-gray-400 dark:placeholder-gray-500 resize-none focus:outline-none min-h-[80px] max-h-[200px] bg-transparent text-gray-800 dark:text-gray-100"
               rows={1}
               disabled={isLoading}
