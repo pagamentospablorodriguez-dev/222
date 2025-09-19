@@ -16,6 +16,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
 
   // Sistema de polling para mensagens automáticas da IA
   useEffect(() => {
+
+if (inputRef.current) {
+      inputRef.current.focus();
+    }
+
+    
     if (!isInitialState) {
       const pollInterval = setInterval(async () => {
         try {
@@ -44,6 +50,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isInitialState, onFirstMe
         } catch (error) {
           console.error('Erro no polling:', error);
         }
+        
       }, 2000);
 
       return () => clearInterval(pollInterval);
